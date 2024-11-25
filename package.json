@@ -1,0 +1,40 @@
+{
+    "name": "eliza",
+    "version": "1.0.0",
+    "scripts": {
+      "preinstall": "npx only-allow pnpm",
+      "build": "pnpm --dir core build",
+      "build-docs": "pnpm --dir docs build",
+      "start:all": "pnpm --dir core start:all",
+      "stop:all": "pnpm --dir core stop:all",
+      "start:service:all": "pnpm --dir core start:service:all",
+      "stop:service:all": "pnpm --dir core stop:service:all",
+      "start": "pnpm --dir core start",
+      "dev": "pnpm --dir core dev",
+      "lint": "pnpm --dir core lint",
+      "prettier-check": "npx prettier --check .",
+      "prettier": "npx prettier --write .",
+      "clean": "bash ./scripts/clean.sh"
+    },
+    "dependencies": {
+      "onnxruntime-node": "^1.20.0",
+      "optional": "^0.1.4",
+      "sharp": "^0.33.5",
+      "typescript": "5.6.3"
+    },
+    "devDependencies": {
+      "husky": "^9.1.6",
+      "lerna": "^8.1.5",
+      "only-allow": "^1.2.1",
+      "prettier": "^3.3.3",
+      "typedoc": "^0.26.11"
+    },
+    "engines": {
+      "node": "~22.0.0"
+    },
+    "pnpm": {
+      "overrides": {
+        "onnxruntime-node": "1.20.0"
+      }
+    }
+  }
