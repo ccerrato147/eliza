@@ -32,3 +32,6 @@ timeline_cache.json
 
 *.sqlite
 characters/
+
+# VS Code settings
+.vscode/
