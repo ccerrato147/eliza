@@ -21,7 +21,7 @@ import ImageDescriptionService from "../../services/image.ts";
 import { glob } from "glob";
 
 import { stringToUuid } from "../../core/uuid.ts";
-import { prettyConsole } from "../../index.ts";
+import logger from "../../core/logger.ts";
 
 export function extractAnswer(text: string): string {
     const startIndex = text.indexOf("Answer: ") + 8;
@@ -61,7 +61,7 @@ class RequestQueue {
             try {
                 await request();
             } catch (error) {
-                console.error("Error processing request:", error);
+                logger.error("Error processing request:", error);
                 this.queue.unshift(request);
                 await this.exponentialBackoff(this.queue.length);
             }
@@ -99,7 +99,7 @@ export class ClientBase extends EventEmitter {
 
     async cacheTweet(tweet: Tweet): Promise<void> {
         if (!tweet) {
-            console.warn("Tweet is undefined, skipping cache");
+            logger.warn("Tweet is undefined, skipping cache");
             return;
         }
         const cacheDir = path.join(
@@ -182,13 +182,10 @@ export class ClientBase extends EventEmitter {
                 const data = fs.readFileSync(this.tweetCacheFilePath, "utf-8");
                 this.lastCheckedTweetId = parseInt(data.trim());
             } else {
-                console.warn("Tweet cache file not found.");
+                logger.warn("Tweet cache file not found.");
             }
         } catch (error) {
-            console.error(
-                "Error loading latest checked tweet ID from file:",
-                error
-            );
+            logger.error("Error loading latest checked tweet ID from file:", error);
         }
         const cookiesFilePath = path.join(
             __dirname,
@@ -211,7 +208,7 @@ export class ClientBase extends EventEmitter {
                 );
                 await this.setCookiesFromArray(cookiesArray);
             } else {
-                console.log("Cookies file path:", cookiesFilePath);
+                logger.log("Cookies file path:", cookiesFilePath);
                 if (fs.existsSync(cookiesFilePath)) {
                     const cookiesArray = JSON.parse(
                         fs.readFileSync(cookiesFilePath, "utf-8")
@@ -223,7 +220,7 @@ export class ClientBase extends EventEmitter {
                         this.runtime.getSetting("TWITTER_PASSWORD"),
                         this.runtime.getSetting("TWITTER_EMAIL")
                     );
-                    console.log("Logged in to Twitter");
+                    logger.log("Logged in to Twitter");
                     const cookies = await this.twitterClient.getCookies();
                     fs.writeFileSync(
                         cookiesFilePath,
@@ -236,10 +233,10 @@ export class ClientBase extends EventEmitter {
             let loggedInWaits = 0;
 
             while (!(await this.twitterClient.isLoggedIn())) {
-                console.log("Waiting for Twitter login");
+                logger.log("Waiting for Twitter login");
                 await new Promise((resolve) => setTimeout(resolve, 2000));
                 if (loggedInWaits > 10) {
-                    console.error("Failed to login to Twitter");
+                    logger.error("Failed to login to Twitter");
                     await this.twitterClient.login(
                         this.runtime.getSetting("TWITTER_USERNAME"),
                         this.runtime.getSetting("TWITTER_PASSWORD"),
@@ -264,15 +261,15 @@ export class ClientBase extends EventEmitter {
                         this.runtime.getSetting("TWITTER_USERNAME")
                     );
                 } catch (error) {
-                    console.error("Error getting user ID:", error);
+                    logger.error("Error getting user ID:", error);
                     return null;
                 }
             });
             if (!userId) {
-                console.error("Failed to get user ID");
+                logger.error("Failed to get user ID");
                 return;
             }
-            console.log("Twitter user ID:", userId);
+            logger.log("Twitter user ID:", userId);
             this.twitterUserId = userId;
 
             await this.populateTimeline();
@@ -290,7 +287,7 @@ export class ClientBase extends EventEmitter {
         return homeTimeline
             .filter((t) => t.__typename !== "TweetWithVisibilityResults")
             .map((tweet) => {
-                console.log("tweet is", tweet);
+                logger.log("tweet is", tweet);
                 const obj = {
                     id: tweet.rest_id,
                     name:
@@ -327,7 +324,7 @@ export class ClientBase extends EventEmitter {
                         [],
                 };
 
-                console.log("obj is", obj);
+                logger.log("obj is", obj);
 
                 return obj;
             });
@@ -361,11 +358,11 @@ export class ClientBase extends EventEmitter {
                 );
                 return (result ?? { tweets: [] }) as QueryTweetsResponse;
             } catch (error) {
-                console.error("Error fetching search tweets:", error);
+                logger.error("Error fetching search tweets:", error);
                 return { tweets: [] };
             }
         } catch (error) {
-            console.error("Error fetching search tweets:", error);
+            logger.error("Error fetching search tweets:", error);
             return { tweets: [] };
         }
     }
@@ -433,7 +430,7 @@ export class ClientBase extends EventEmitter {
                             : undefined,
                     } as Content;
 
-                    prettyConsole.log("Creating memory for tweet", tweet.id);
+                    logger.log("Creating memory for tweet", tweet.id);
 
                     // check if it already exists
                     const memory =
@@ -441,7 +438,7 @@ export class ClientBase extends EventEmitter {
                             stringToUuid(tweet.id + "-" + this.runtime.agentId)
                         );
                     if (memory) {
-                        prettyConsole.log(
+                        logger.log(
                             "Memory already exists, skipping timeline population"
                         );
                         break;
@@ -458,7 +455,7 @@ export class ClientBase extends EventEmitter {
                     });
                 }
 
-                prettyConsole.log(
+                logger.log(
                     `Populated ${tweetsToSave.length} missing tweets from the cache.`
                 );
                 return;
@@ -581,7 +578,7 @@ export class ClientBase extends EventEmitter {
                 recentMessage.length > 0 &&
                 recentMessage[0].content === message.content
             ) {
-                console.log("Message already saved", recentMessage[0].id);
+                logger.log("Message already saved", recentMessage[0].id);
             } else {
                 await this.runtime.messageManager.createMemory({
                     ...message,

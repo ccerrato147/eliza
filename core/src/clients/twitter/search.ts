@@ -17,6 +17,7 @@ import {
 import { stringToUuid } from "../../core/uuid.ts";
 import { ClientBase } from "./base.ts";
 import { buildConversationThread, sendTweetChunks, wait } from "./utils.ts";
+import logger from "../../core/logger.ts";
 
 const messageHandlerTemplate =
     `{{relevantFacts}}
@@ -71,7 +72,7 @@ export class TwitterSearchClient extends ClientBase {
     }
 
     private async engageWithSearchTerms() {
-        console.log("Engaging with search terms");
+        logger.log("Engaging with search terms");
         try {
             const searchTerm = [...this.runtime.character.topics][
                 Math.floor(Math.random() * this.runtime.character.topics.length)
@@ -80,7 +81,7 @@ export class TwitterSearchClient extends ClientBase {
             if (!fs.existsSync("tweetcache")) {
                 fs.mkdirSync("tweetcache");
             }
-            console.log("Fetching search tweets");
+            logger.log("Fetching search tweets");
             // TODO: we wait 5 seconds here to avoid getting rate limited on startup, but we should queue
             await new Promise((resolve) => setTimeout(resolve, 5000));
             const recentTweets = await this.fetchSearchTweets(
@@ -88,7 +89,7 @@ export class TwitterSearchClient extends ClientBase {
                 20,
                 SearchMode.Top
             );
-            console.log("Search tweets fetched");
+            logger.log("Search tweets fetched");
 
             const homeTimeline = await this.fetchHomeTimeline(50);
             fs.writeFileSync(
@@ -110,7 +111,7 @@ export class TwitterSearchClient extends ClientBase {
                 .slice(0, 20);
 
             if (slicedTweets.length === 0) {
-                console.log(
+                logger.log(
                     "No valid tweets found for the search term",
                     searchTerm
                 );
@@ -167,17 +168,17 @@ export class TwitterSearchClient extends ClientBase {
             );
 
             if (!selectedTweet) {
-                console.log("No matching tweet found for the selected ID");
-                return console.log("Selected tweet ID:", tweetId);
+                logger.log("No matching tweet found for the selected ID");
+                return logger.log("Selected tweet ID:", tweetId);
             }
 
-            console.log("Selected tweet to reply to:", selectedTweet?.text);
+            logger.log("Selected tweet to reply to:", selectedTweet?.text);
 
             if (
                 selectedTweet.username ===
                 this.runtime.getSetting("TWITTER_USERNAME")
             ) {
-                console.log("Skipping tweet from bot itself");
+                logger.log("Skipping tweet from bot itself");
                 return;
             }
 
@@ -289,11 +290,11 @@ export class TwitterSearchClient extends ClientBase {
             const response = responseContent;
 
             if (!response.text) {
-                console.log("Returning: No response text found");
+                logger.log("Returning: No response text found");
                 return;
             }
 
-            console.log(
+            logger.log(
                 `Bot would respond to tweet ${selectedTweet.id} with: ${response.text}`
             );
             try {
@@ -337,10 +338,10 @@ export class TwitterSearchClient extends ClientBase {
                 fs.writeFileSync(debugFileName, responseInfo);
                 await wait();
             } catch (error) {
-                console.error(`Error sending response post: ${error}`);
+                logger.error(`Error sending response post: ${error}`);
             }
         } catch (error) {
-            console.error("Error engaging with search terms:", error);
+            logger.error("Error engaging with search terms:", error);
         }
     }
 }

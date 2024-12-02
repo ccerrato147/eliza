@@ -14,11 +14,11 @@ import models from "./models.ts";
 import { generateText as aiGenerateText } from "ai";
 
 import { createAnthropic } from "@ai-sdk/anthropic";
-import { prettyConsole } from "../index.ts";
 
 import { createVertex } from "@ai-sdk/google-vertex";
 
 import settings from "./settings.ts";
+import logger from "./logger.ts";
 
 /**
  * Send a message to the model for a text generateText - receive a string back and parse how you'd like
@@ -45,7 +45,7 @@ export async function generateText({
     stop?: string[];
 }): Promise<string> {
     if (!context) {
-        console.error("generateText context is empty");
+        logger.error("generateText context is empty");
         return "";
     }
 
@@ -60,7 +60,7 @@ export async function generateText({
     const apiKey = runtime.token;
 
     try {
-        prettyConsole.log(
+        logger.log(
             `Trimming context to max length of ${max_context_length} tokens.`
         );
         context = await trimTokens(context, max_context_length, "gpt-4o");
@@ -68,17 +68,17 @@ export async function generateText({
         let response: string;
 
         const _stop = stop || models[provider].settings.stop;
-        prettyConsole.log(
+        logger.log(
             `Using provider: ${provider}, model: ${model}, temperature: ${temperature}, max response length: ${max_response_length}`
         );
 
         switch (provider) {
             case ModelProvider.OPENAI:
             case ModelProvider.LLAMACLOUD: {
-                prettyConsole.log("Initializing OpenAI model.");
+                logger.log("Initializing OpenAI model.");
                 const openai = createOpenAI({ apiKey });
 
-                console.log('****** CONTEXT\n', context)
+                logger.log('****** CONTEXT\n', context)
 
                 const { text: openaiResponse } = await aiGenerateText({
                     model: openai.languageModel(model),
@@ -89,15 +89,15 @@ export async function generateText({
                     presencePenalty: presence_penalty,
                 });
 
-                console.log("****** RESPONSE\n", openaiResponse);
+                logger.log("****** RESPONSE\n", openaiResponse);
 
                 response = openaiResponse;
-                prettyConsole.log("Received response from OpenAI model.");
+                logger.log("Received response from OpenAI model.");
                 break;
             }
 
             case ModelProvider.ANTHROPIC: {
-                prettyConsole.log("Initializing Anthropic model.");
+                logger.log("Initializing Anthropic model.");
 
                 const anthropic = createAnthropic({ apiKey });
 
@@ -111,12 +111,12 @@ export async function generateText({
                 });
 
                 response = anthropicResponse;
-                prettyConsole.log("Received response from Anthropic model.");
+                logger.log("Received response from Anthropic model.");
                 break;
             }
 
             case ModelProvider.GROK: {
-                prettyConsole.log("Initializing Grok model.");
+                logger.log("Initializing Grok model.");
                 const serverUrl = models[provider].endpoint;
                 const grok = createOpenAI({ apiKey, baseURL: serverUrl });
 
@@ -132,12 +132,12 @@ export async function generateText({
                 });
 
                 response = grokResponse;
-                prettyConsole.log("Received response from Grok model.");
+                logger.log("Received response from Grok model.");
                 break;
             }
 
             case ModelProvider.GROQ: {
-                console.log("Initializing Groq model.");
+                logger.log("Initializing Groq model.");
                 const groq = createGroq({ apiKey });
 
                 const { text: groqResponse } = await aiGenerateText({
@@ -150,12 +150,12 @@ export async function generateText({
                 });
 
                 response = groqResponse;
-                console.log("Received response from Groq model.");
+                logger.log("Received response from Groq model.");
                 break;
             }
 
             case ModelProvider.LLAMALOCAL: {
-                prettyConsole.log(
+                logger.log(
                   "Using local Llama model for text completion."
                 );
                 response = await runtime.llamaService.queueTextCompletion(
@@ -166,17 +166,17 @@ export async function generateText({
                   presence_penalty,
                   max_response_length
                 );
-                prettyConsole.log("Received response from local Llama model.");
+                logger.log("Received response from local Llama model.");
                 break;
             }
 
             case ModelProvider.REDPILL: {
-                prettyConsole.log("Initializing RedPill model.");
+                logger.log("Initializing RedPill model.");
                 const serverUrl = models[provider].endpoint;
                 const openai = createOpenAI({ apiKey, baseURL: serverUrl });
 
-                console.log('****** MODEL\n', model)
-                console.log('****** CONTEXT\n', context)
+                logger.log('****** MODEL\n', model)
+                logger.log('****** CONTEXT\n', context)
 
                 const { text: openaiResponse } = await aiGenerateText({
                     model: openai.languageModel(model),
@@ -187,15 +187,15 @@ export async function generateText({
                     presencePenalty: presence_penalty,
                 });
 
-                console.log("****** RESPONSE\n", openaiResponse);
+                logger.log("****** RESPONSE\n", openaiResponse);
 
                 response = openaiResponse;
-                prettyConsole.log("Received response from OpenAI model.");
+                logger.log("Received response from OpenAI model.");
                 break;
             }
 
             case ModelProvider.GOOGLE_VERTEX: {
-                prettyConsole.log("Initializing Vertex AI model.");
+                logger.log("Initializing Vertex AI model.");
                 const vertex = createVertex({
                     project: settings.GOOGLE_PROJECT_ID, // 'dega-dbb-uat', // Your Google Cloud project ID
                     location: settings.GOOGLE_PROJECT_LOCATION //'us-central1',    // The region for Vertex AI services
@@ -212,20 +212,20 @@ export async function generateText({
                 });
 
                 response = vertexResponse;
-                console.log('Received response from Vertex AI model.');
+                logger.log('Received response from Vertex AI model.');
                 break;
             }
 
             default: {
                 const errorMessage = `Unsupported provider: ${provider}`;
-                prettyConsole.error(errorMessage);
+                logger.error(errorMessage);
                 throw new Error(errorMessage);
             }
         }
 
         return response;
     } catch (error) {
-        prettyConsole.error("Error in generateText:", error);
+        logger.error("Error in generateText:", error);
         throw error;
     }
 }
@@ -288,7 +288,7 @@ export async function generateShouldRespond({
     let retryDelay = 1000;
     while (true) {
         try {
-            prettyConsole.log(
+            logger.log(
                 "Attempting to generate text with context:",
                 context
             );
@@ -298,27 +298,27 @@ export async function generateShouldRespond({
                 modelClass,
             });
 
-            prettyConsole.log("Received response from generateText:", response);
+            logger.log("Received response from generateText:", response);
             const parsedResponse = parseShouldRespondFromText(response.trim());
             if (parsedResponse) {
-                prettyConsole.log("Parsed response:", parsedResponse);
+                logger.log("Parsed response:", parsedResponse);
                 return parsedResponse;
             } else {
-                prettyConsole.log("generateShouldRespond no response");
+                logger.log("generateShouldRespond no response");
             }
         } catch (error) {
-            prettyConsole.error("Error in generateShouldRespond:", error);
+            logger.error("Error in generateShouldRespond:", error);
             if (
                 error instanceof TypeError &&
                 error.message.includes("queueTextCompletion")
             ) {
-                prettyConsole.error(
+                logger.error(
                     "TypeError: Cannot read properties of null (reading 'queueTextCompletion')"
                 );
             }
         }
 
-        prettyConsole.log(`Retrying in ${retryDelay}ms...`);
+        logger.log(`Retrying in ${retryDelay}ms...`);
         await new Promise((resolve) => setTimeout(resolve, retryDelay));
         retryDelay *= 2;
     }
@@ -409,7 +409,7 @@ export async function generateTrueOrFalse({
                 return parsedResponse;
             }
         } catch (error) {
-            prettyConsole.error("Error in generateTrueOrFalse:", error);
+            logger.error("Error in generateTrueOrFalse:", error);
         }
 
         await new Promise((resolve) => setTimeout(resolve, retryDelay));
@@ -442,7 +442,7 @@ export async function generateTextArray({
     modelClass: string;
 }): Promise<string[]> {
     if (!context) {
-        prettyConsole.error("generateTextArray context is empty");
+        logger.error("generateTextArray context is empty");
         return [];
     }
     let retryDelay = 1000;
@@ -460,7 +460,7 @@ export async function generateTextArray({
                 return parsedResponse;
             }
         } catch (error) {
-            prettyConsole.error("Error in generateTextArray:", error);
+            logger.error("Error in generateTextArray:", error);
         }
 
         await new Promise((resolve) => setTimeout(resolve, retryDelay));
@@ -478,7 +478,7 @@ export async function generateObject({
     modelClass: string;
 }): Promise<any> {
     if (!context) {
-        prettyConsole.error("generateObject context is empty");
+        logger.error("generateObject context is empty");
         return null;
     }
     let retryDelay = 1000;
@@ -496,7 +496,7 @@ export async function generateObject({
                 return parsedResponse;
             }
         } catch (error) {
-            prettyConsole.error("Error in generateObject:", error);
+            logger.error("Error in generateObject:", error);
         }
 
         await new Promise((resolve) => setTimeout(resolve, retryDelay));
@@ -514,7 +514,7 @@ export async function generateObjectArray({
     modelClass: string;
 }): Promise<any[]> {
     if (!context) {
-        prettyConsole.error("generateObjectArray context is empty");
+        logger.error("generateObjectArray context is empty");
         return [];
     }
     let retryDelay = 1000;
@@ -532,7 +532,7 @@ export async function generateObjectArray({
                 return parsedResponse;
             }
         } catch (error) {
-            prettyConsole.error("Error in generateTextArray:", error);
+            logger.error("Error in generateTextArray:", error);
         }
 
         await new Promise((resolve) => setTimeout(resolve, retryDelay));
@@ -575,17 +575,17 @@ export async function generateMessageResponse({
             // try parsing the response as JSON, if null then try again
             const parsedContent = parseJSONObjectFromText(response) as Content;
             if (!parsedContent) {
-                prettyConsole.log("parsedContent is null, retrying");
+                logger.log("parsedContent is null, retrying");
                 continue;
             }
 
             return parsedContent;
         } catch (error) {
-            prettyConsole.error("ERROR:", error);
+            logger.error("ERROR:", error);
             // wait for 2 seconds
             retryLength *= 2;
             await new Promise((resolve) => setTimeout(resolve, retryLength));
-            prettyConsole.log("Retrying...");
+            logger.log("Retrying...");
         }
     }
 }

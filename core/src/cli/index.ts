@@ -16,6 +16,7 @@ import { Arguments } from "../types/index.ts";
 import { loadActionConfigs, loadCustomActions } from "./config.ts";
 import { prettyConsole } from "../index.ts";
 import dotenv from "dotenv";
+import logger from "../core/logger.ts";
 
 // Load .env file
 dotenv.config();
@@ -64,7 +65,7 @@ export function parseArguments(): Arguments {
             })
             .parseSync() as Arguments;
     } catch (error) {
-        console.error("Error parsing arguments:", error);
+        logger.error("Error parsing arguments:", error);
         return {};
     }
 }
@@ -79,7 +80,7 @@ async function fetchCharacter(uuid: string, apiKey: string): Promise<Character |
         });
         
         if (!response.ok) {
-            console.error(`Error fetching character ${uuid}: ${response.statusText}`);
+            logger.error(`Error fetching character ${uuid}: ${response.statusText}`);
             return null;
         }
         
@@ -116,7 +117,7 @@ async function fetchCharacter(uuid: string, apiKey: string): Promise<Character |
         
         return mappedCharacter;
     } catch (e) {
-        console.error(`Error fetching character ${uuid}:`, e);
+        logger.error(`Error fetching character ${uuid}:`, e);
         return null;
     }
 }
@@ -124,8 +125,8 @@ async function fetchCharacter(uuid: string, apiKey: string): Promise<Character |
 export async function loadCharacters(charactersArg: string): Promise<Character[]> {
     const apiKey = process.env.CHARACTERS_API_KEY;
     if (!apiKey) {
-        console.error('CHARACTERS_API_KEY not found in environment variables');
-        console.log('Falling back to default character');
+        logger.error('CHARACTERS_API_KEY not found in environment variables');
+        logger.log('Falling back to default character');
         return [defaultCharacter];
     }
 
@@ -140,7 +141,7 @@ export async function loadCharacters(charactersArg: string): Promise<Character[]
     }
 
     if (loadedCharacters.length === 0) {
-        console.log('No characters found or failed to load, using default character');
+        logger.log('No characters found or failed to load, using default character');
         loadedCharacters.push(defaultCharacter);
     }
 
@@ -201,7 +202,7 @@ export async function createAgentRuntime(
     const actionConfigs = loadActionConfigs(configPath);
     const customActions = await loadCustomActions(actionConfigs);
 
-    console.log("Creating runtime for character", character.name);
+    logger.log("Creating runtime for character", character.name);
 
     return new AgentRuntime({
         databaseAdapter: db,
@@ -236,7 +237,7 @@ export async function createDirectRuntime(
     const actionConfigs = loadActionConfigs(configPath);
     const customActions = await loadCustomActions(actionConfigs);
 
-    console.log("Creating runtime for character", character.name);
+    logger.log("Creating runtime for character", character.name);
     return new AgentRuntime({
         databaseAdapter: db,
         token,

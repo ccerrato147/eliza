@@ -7,6 +7,7 @@ import { IAgentRuntime, ModelClass } from "../../core/types.ts";
 import { stringToUuid } from "../../core/uuid.ts";
 import { ClientBase } from "./base.ts";
 import { generateText } from "../../core/generation.ts";
+import logger from "../../core/logger.ts";
 
 const newTweetPrompt = `{{timeline}}
 
@@ -47,7 +48,7 @@ export class TwitterGenerationClient extends ClientBase {
     }
 
     private async generateNewTweet() {
-        console.log("Generating new tweet");
+        logger.log("Generating new tweet");
         try {
             await this.runtime.ensureUserExists(
                 this.runtime.agentId,
@@ -112,7 +113,7 @@ export class TwitterGenerationClient extends ClientBase {
                 context,
                 modelClass: ModelClass.SMALL,
             });
-            console.log("New Tweet:", newTweetContent);
+            logger.log("New Tweet:", newTweetContent);
             log_to_file(
                 `${this.runtime.getSetting("TWITTER_USERNAME")}_${datestr}_generate_response`,
                 JSON.stringify(newTweetContent)
@@ -186,13 +187,13 @@ export class TwitterGenerationClient extends ClientBase {
                         createdAt: tweet.timestamp * 1000,
                     });
                 } catch (error) {
-                    console.error("Error sending tweet:", error);
+                    logger.error("Error sending tweet:", error);
                 }
             } else {
-                console.log("Dry run, not sending tweet:", newTweetContent);
+                logger.log("Dry run, not sending tweet:", newTweetContent);
             }
         } catch (error) {
-            console.error("Error generating new tweet:", error);
+            logger.error("Error generating new tweet:", error);
         }
     }
 }

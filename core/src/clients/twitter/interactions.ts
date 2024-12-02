@@ -1,7 +1,7 @@
 import { SearchMode, Tweet } from "agent-twitter-client";
 import fs from "fs";
 import { composeContext } from "../../core/context.ts";
-import { log_to_file } from "../../core/logger.ts";
+import logger from "../../core/logger.ts";
 import {
     messageCompletionFooter,
     shouldRespondFooter,
@@ -80,7 +80,7 @@ export class TwitterInteractionClient extends ClientBase {
             setTimeout(
                 handleTwitterInteractionsLoop,
                 (Math.floor(Math.random() * (5 - 2 + 1)) + 2) * 60 * 1000
-            ); // Random interval between 2-5 minutes
+            );
         };
         handleTwitterInteractionsLoop();
     }
@@ -92,7 +92,7 @@ export class TwitterInteractionClient extends ClientBase {
     }
 
     async handleTwitterInteractions() {
-        console.log("Checking Twitter interactions");
+        logger.log("Checking Twitter interactions");
         try {
             // Check for mentions
             const tweetCandidates = (
@@ -177,9 +177,9 @@ export class TwitterInteractionClient extends ClientBase {
                 );
             }
 
-            console.log("Finished checking Twitter interactions");
+            logger.log("Finished checking Twitter interactions");
         } catch (error) {
-            console.error("Error handling Twitter interactions:", error);
+            logger.error("Error handling Twitter interactions:", error);
         }
     }
 
@@ -191,16 +191,16 @@ export class TwitterInteractionClient extends ClientBase {
         message: Memory;
     }) {
         if (tweet.username === this.runtime.getSetting("TWITTER_USERNAME")) {
-            console.log("skipping tweet from bot itself", tweet.id);
+            logger.log("skipping tweet from bot itself", tweet.id);
             // Skip processing if the tweet is from the bot itself
             return;
         }
 
         if (!message.content.text) {
-            console.log("skipping tweet with no text", tweet.id);
+            logger.log("skipping tweet with no text", tweet.id);
             return { text: "", action: "IGNORE" };
         }
-        console.log("handling tweet", tweet.id);
+        logger.log("handling tweet", tweet.id);
         const formatTweet = (tweet: Tweet) => {
             return `  ID: ${tweet.id}
   From: ${tweet.name} (@${tweet.username})
@@ -243,7 +243,7 @@ export class TwitterInteractionClient extends ClientBase {
             await this.runtime.messageManager.getMemoryById(tweetId);
 
         if (!tweetExists) {
-            console.log("tweet does not exist, saving");
+            logger.log("tweet does not exist, saving");
             const userIdUUID = stringToUuid(tweet.userId as string);
             const roomId = stringToUuid(tweet.conversationId);
 
@@ -264,7 +264,7 @@ export class TwitterInteractionClient extends ClientBase {
             this.saveRequestMessage(message, state);
         }
 
-        console.log("composeState done");
+        logger.log("composeState done");
 
         const shouldRespondContext = composeContext({
             state,
@@ -278,7 +278,7 @@ export class TwitterInteractionClient extends ClientBase {
         });
 
         if (!shouldRespond) {
-            console.log("Not responding to message");
+            logger.log("Not responding to message");
             return { text: "", action: "IGNORE" };
         }
 
@@ -290,7 +290,7 @@ export class TwitterInteractionClient extends ClientBase {
         const datestr = new Date().toUTCString().replace(/:/g, "-");
 
         // log context to file
-        log_to_file(
+        logger.log(
             `${this.runtime.getSetting("TWITTER_USERNAME")}_${datestr}_interactions_context`,
             context
         );
@@ -301,19 +301,14 @@ export class TwitterInteractionClient extends ClientBase {
             modelClass: ModelClass.SMALL,
         });
 
-        console.log("response", response);
+        logger.log("response", response);
+        logger.log("tweet is", tweet);
+        logger.log("stringId is", stringToUuid(tweet.id + "-" + this.runtime.agentId), "while tweet.id is", tweet.id);
+        logger.log("response is", response);
 
-        console.log("tweet is", tweet);
+        response.inReplyTo = stringToUuid(tweet.id + "-" + this.runtime.agentId);
 
-        const stringId = stringToUuid(tweet.id + "-" + this.runtime.agentId);
-
-        console.log("stringId is", stringId, "while tweet.id is", tweet.id);
-
-        response.inReplyTo = stringId;
-
-        console.log("response is", response);
-
-        log_to_file(
+        logger.log(
             `${this.runtime.getSetting("TWITTER_USERNAME")}_${datestr}_interactions_response`,
             JSON.stringify(response)
         );
@@ -354,7 +349,7 @@ export class TwitterInteractionClient extends ClientBase {
                         state
                     );
                 } else {
-                    console.log("Dry run, not sending tweet:", response.text);
+                    logger.log("Dry run, not sending tweet:", response.text);
                 }
                 const responseInfo = `Context:\n\n${context}\n\nSelected Post: ${tweet.id} - ${tweet.username}: ${tweet.text}\nAgent's Output:\n${response.text}`;
                 // f tweets folder dont exist, create
@@ -365,7 +360,7 @@ export class TwitterInteractionClient extends ClientBase {
                 fs.writeFileSync(debugFileName, responseInfo);
                 await wait();
             } catch (error) {
-                console.error(`Error sending response tweet: ${error}`);
+                logger.error(`Error sending response tweet: ${error}`);
             }
         }
     }
