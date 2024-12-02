@@ -10,7 +10,7 @@ type Models = {
     [ModelProvider.GOOGLE]: Model;
     [ModelProvider.CLAUDE_VERTEX]: Model;
     [ModelProvider.REDPILL]: Model;
-    // TODO: add OpenRouter - feel free to do this :)
+    [ModelProvider.GOOGLE_VERTEX]: Model;
 };
 
 const models: Models = {
@@ -148,6 +148,23 @@ const models: Models = {
             [ModelClass.MEDIUM]: "gemini-1.5-flash",
             [ModelClass.LARGE]: "gemini-1.5-pro",
             [ModelClass.EMBEDDING]: "text-embedding-004",
+        },
+    },
+    [ModelProvider.GOOGLE_VERTEX]: {
+        endpoint: "https://us-central1-aiplatform.googleapis.com/v1",
+        settings: {
+            stop: [],
+            maxInputTokens: 32768,
+            maxOutputTokens: 2048,
+            frequency_penalty: 0.0,
+            presence_penalty: 0.0,
+            temperature: 0.4,
+        },
+        model: {
+            [ModelClass.SMALL]: "gemini-pro",
+            [ModelClass.MEDIUM]: "gemini-pro",
+            [ModelClass.LARGE]: "gemini-pro",
+            [ModelClass.EMBEDDING]: "textembedding-gecko",
         },
     },
     [ModelProvider.REDPILL]: {

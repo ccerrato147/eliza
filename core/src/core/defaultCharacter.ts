@@ -5,12 +5,11 @@ const defaultCharacter: Character = {
     clients: [
         // "telegram",
         // "discord"
-        "twitter"
+        //"twitter"
     ],
-    modelProvider: ModelProvider.OPENAI,
+    modelProvider: ModelProvider.GOOGLE_VERTEX,
     settings: {
         secrets: {
-            
         },
         voice: {
             model: "en_US-hfc_female-medium",

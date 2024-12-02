@@ -350,13 +350,13 @@ export class PostgresDatabaseAdapter extends DatabaseAdapter {
 
             await client.query(
                 `INSERT INTO memories (
-    id, type, content, embedding, "userId", "roomId", "agentId", "unique", "createdAt"
-  ) VALUES ($1, $2, $3, $4::vector, $5::uuid, $6::uuid, $7::uuid, $8, to_timestamp($9/1000.0))`,
+                    id, type, content, embedding, "userId", "roomId", "agentId", "unique", "createdAt"
+                ) VALUES ($1, $2, $3, $4, $5::uuid, $6::uuid, $7::uuid, $8, to_timestamp($9/1000.0))`,
                 [
                     memory.id ?? v4(),
                     tableName,
                     JSON.stringify(memory.content),
-                    `[${memory.embedding.join(",")}]`,
+                    memory.embedding ? `[${memory.embedding.join(",")}]` : null,
                     memory.userId,
                     memory.roomId,
                     memory.agentId,

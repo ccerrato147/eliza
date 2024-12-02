@@ -50,13 +50,7 @@ prettyConsole.clear();
 prettyConsole.closeByNewLine = true;
 prettyConsole.useIcons = true;
 
-// Remove file path related logic since we're using UUIDs
-if (!argv.characters) {
-    prettyConsole.error("No character UUIDs provided. Please specify characters using --characters");
-    process.exit(1);
-}
-
-// Load characters using UUIDs
+// Load characters - if argv.characters is undefined, loadCharacters will use defaultCharacter
 let characters = await loadCharacters(argv.characters);
 
 if (characters.length === 0) {

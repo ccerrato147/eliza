@@ -169,6 +169,11 @@ export function getTokenForProvider(
                 character.settings?.secrets?.REDPILL_API_KEY ||
                 settings.REDPILL_API_KEY
             );
+        case ModelProvider.GOOGLE:
+            return(
+                character.settings?.secrets?.GOOGLE_GENERATIVE_AI_API_KEY ||
+                settings.GOOGLE_GENERATIVE_AI_API_KEY
+            );
     }
 }
 // Function to initialize and return the appropriate database adapter based on configuration

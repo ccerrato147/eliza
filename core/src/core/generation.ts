@@ -16,6 +16,10 @@ import { generateText as aiGenerateText } from "ai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { prettyConsole } from "../index.ts";
 
+import { createVertex } from "@ai-sdk/google-vertex";
+
+import settings from "./settings.ts";
+
 /**
  * Send a message to the model for a text generateText - receive a string back and parse how you'd like
  * @param opts - The options for the generateText request.
@@ -187,6 +191,28 @@ export async function generateText({
 
                 response = openaiResponse;
                 prettyConsole.log("Received response from OpenAI model.");
+                break;
+            }
+
+            case ModelProvider.GOOGLE_VERTEX: {
+                prettyConsole.log("Initializing Vertex AI model.");
+                const vertex = createVertex({
+                    project: settings.GOOGLE_PROJECT_ID, // 'dega-dbb-uat', // Your Google Cloud project ID
+                    location: settings.GOOGLE_PROJECT_LOCATION //'us-central1',    // The region for Vertex AI services
+                    // Optional: Additional authentication options can be specified here
+                });
+            
+                const { text: vertexResponse } = await aiGenerateText({
+                    model: vertex('gemini-1.5-pro'), // Specify the model ID
+                    prompt: context,
+                    temperature: temperature,
+                    maxTokens: max_response_length,
+                    frequencyPenalty: frequency_penalty,
+                    presencePenalty: presence_penalty,
+                });
+
+                response = vertexResponse;
+                console.log('Received response from Vertex AI model.');
                 break;
             }
 
