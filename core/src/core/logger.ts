@@ -1,27 +1,98 @@
 import fs from "fs";
 import path from "path";
+
+// Type for logger configuration
+type LoggerConfig = {
+    type: 'console' | 'remote';
+    // Add other config options as needed
+    // Example: credentials?: object;
+    // Example: endpoint?: string;
+};
+
 class Logger {
-    frameChar = "*";
+    private static instance: Logger | null = null;
+    private frameChar = "*";
+    private config: LoggerConfig = { type: 'console' }; // Default to console logging
 
-    async log(
-        message: string,
-        title: string = "",
-        color: string = "white"
-    ): Promise<void> {
-        const c = await import("ansi-colors");
-        const ansiColors = c.default;
-        console.log(ansiColors[color]("*** LOG: " + title + "\n" + message));
+    private constructor() {}
+
+    public static getInstance(): Logger {
+        if (!Logger.instance) {
+            Logger.instance = new Logger();
+        }
+        return Logger.instance;
     }
 
-    warn(message: string, options = {}) {
-        console.warn(message, { ...options });
+    public configure(config: LoggerConfig): void {
+        this.config = config;
     }
 
-    error(message: string, options = {}) {
-        console.error(message, { ...options });
+    async log(...args: any[]): Promise<void> {
+        try {
+            if (this.config.type === 'console') {
+                // Handle different input patterns
+                if (args.length === 0) {
+                    return;
+                }
+                
+                // Convert all arguments to strings and join them
+                const message = args
+                    .map(arg => 
+                        typeof arg === 'object' 
+                            ? JSON.stringify(arg, null, 2)
+                            : String(arg)
+                    )
+                    .join(' ');
+
+                // Check if the last argument is a valid color
+                const color = typeof args[args.length - 1] === 'string' 
+                    && ['red', 'blue', 'green', 'yellow', 'white'].includes(args[args.length - 1])
+                    ? args[args.length - 1]
+                    : 'white';
+
+                const c = await import("ansi-colors");
+                const ansiColors = c.default;
+                console.log(ansiColors[color](message));
+            } else {
+                // Future remote logging implementation
+                console.log(...args); // Fallback for now
+            }
+        } catch (error) {
+            console.error("Logging failed:", error);
+            // Fallback to basic logging
+            console.log(...args);
+        }
     }
 
-    frameMessage(message: string, title: string) {
+    warn(...args: any[]): void {
+        try {
+            if (this.config.type === 'console') {
+                console.warn(...args);
+            } else {
+                // Future remote warning implementation
+                console.warn(...args);
+            }
+        } catch (error) {
+            console.error("Warning failed:", error);
+        }
+    }
+
+    error(...args: any[]): void {
+        try {
+            if (this.config.type === 'console') {
+                console.error(...args);
+            } else {
+                // Future remote error implementation
+                console.error(...args);
+            }
+        } catch (error) {
+            console.error("Error logging failed:", error);
+            // Fallback to basic error logging
+            console.log("ERROR:", ...args);
+        }
+    }
+
+    frameMessage(message: string, title: string): string {
         const lines = message.split("\n");
         const frameHorizontalLength = 30;
         const topFrame =
@@ -41,7 +112,8 @@ class Logger {
     }
 }
 
-const logger = new Logger();
+// Create the singleton instance
+const logger = Logger.getInstance();
 
 export function log_to_file(
     filename: string,
@@ -71,4 +143,5 @@ export function log_to_file(
     logger.log(`Logged to ${filename}: ${preview}`, filename);
 }
 
+export { LoggerConfig };
 export default logger;

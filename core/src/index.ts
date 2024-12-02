@@ -34,9 +34,8 @@ import {
 // Import console formatting utilities
 import { PrettyConsole } from "./cli/colors.ts";
 
-// Import fs and path modules for file operations
-import fs from 'fs';
-import path from 'path';
+// Add import for logger
+import logger from "./core/logger.ts";
 
 // Parse command line arguments and initialize configuration
 let argv: Arguments = parseArguments();
@@ -70,28 +69,15 @@ directClient.start(serverPort);
  * @returns Promise containing initialized clients
  */
 async function startAgent(character: Character) {
-    const timestamp = new Date().toISOString();
-    const logMessage = `[${timestamp}] Starting agent for character ${character.name}\n`;
+    logger.log(`Starting agent for character ${character.name}`, 'green');
     
-    // Ensure logs directory exists
-    const logsDir = path.join(process.cwd(), 'logs');
-    if (!fs.existsSync(logsDir)) {
-        fs.mkdirSync(logsDir);
-    }
-    
-    // Append to log file
-    fs.appendFileSync(path.join(logsDir, 'agents.log'), logMessage);
-    
-    prettyConsole.success(`Starting agent for character ${character.name}`);
     const token = getTokenForProvider(character.modelProvider, character);
     const db = initializeDatabase();
 
-    // Create main runtime for handling interactions through various clients (Discord, Telegram, etc)
+    // Create main runtime for handling interactions through various clients
     const runtime = await createAgentRuntime(character, db, token);
     
-    // Create separate runtime specifically for direct HTTP API interactions
-    // This allows the agent to handle direct messages through the REST API endpoints
-    // while keeping that logic separate from the main client integrations
+    // Create separate runtime for direct HTTP API interactions
     const directRuntime = createDirectRuntime(character, db, token);
 
     const clients = await initializeClients(character, runtime);
@@ -123,6 +109,8 @@ const rl = readline.createInterface({
  * Supports 'exit' command to terminate the chat session.
  */
 async function chat() {
+    logger.log("Chat started. Type 'exit' to quit.", 'blue');
+    
     while (true) {
         const input = await new Promise<string>(resolve => {
             rl.question("You: ", resolve);
@@ -151,10 +139,10 @@ async function chat() {
 
         const data = await response.json();
         for (const message of data) {
-            console.log(`${characters[0].name}: ${message.text}`);
+            logger.log(`${characters[0].name}: ${message.text}`);
         }
     }
 }
-console.log("Chat started. Type 'exit' to quit.");
+logger.log("Chat started. Type 'exit' to quit.", 'blue');
 chat();
 
