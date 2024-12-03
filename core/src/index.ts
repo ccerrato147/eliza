@@ -24,7 +24,6 @@ import { Arguments } from "./types/index.ts";
 // Import core runtime and initialization functions
 import {
     createAgentRuntime,     // Creates runtime environment for AI agents
-    createDirectRuntime,    // Creates runtime for direct messaging
     getTokenForProvider,    // Retrieves API tokens for AI providers
     initializeClients,      // Sets up communication clients
     initializeDatabase,     // Sets up persistent storage
@@ -37,13 +36,19 @@ import { PrettyConsole } from "./cli/colors.ts";
 // Add import for logger
 import logger from "./core/logger.ts";
 
-logger.configure({
-    type: 'google-cloud',
-    projectId: process.env.GOOGLE_PROJECT_ID,
-    logName: process.env.GOOGLE_LOGS_NAME,
-    keyFilename: process.env.GOOGLE_APPLICATION_CREDENTIALS
-});
+// logger.configure({
+//     type: 'google-cloud',
+//     projectId: process.env.GOOGLE_PROJECT_ID,
+//     logName: process.env.GOOGLE_LOGS_NAME,
+//     keyFilename: process.env.GOOGLE_APPLICATION_CREDENTIALS
+// });
 
+import express, { Express, Request, Response, Router } from 'express';
+
+// Initialize Express app
+const app: Express = express();
+const router = Router();
+const port = process.env.PORT || 3000;
 
 // Parse command line arguments and initialize configuration
 let argv: Arguments = parseArguments();
@@ -57,19 +62,7 @@ prettyConsole.clear();
 prettyConsole.closeByNewLine = true;
 prettyConsole.useIcons = true;
 
-// Load characters - if argv.characters is undefined, loadCharacters will use defaultCharacter
-let characters = await loadCharacters(argv.characters);
-
-if (characters.length === 0) {
-    prettyConsole.error("No characters could be loaded. Exiting...");
-    process.exit(1);
-}
-
-const directClient = new Client.DirectClient();
-
-// Start the direct client
-const serverPort = parseInt(process.env.SERVER_PORT || "3000");
-directClient.start(serverPort);
+// Load characters directly without CLI arguments
 
 /**
  * Initializes and starts an agent for a given character.
@@ -85,73 +78,34 @@ async function startAgent(character: Character) {
     // Create main runtime for handling interactions through various clients
     const runtime = await createAgentRuntime(character, db, token);
     
-    // Create separate runtime for direct HTTP API interactions
-    const directRuntime = createDirectRuntime(character, db, token);
-
     const clients = await initializeClients(character, runtime);
-    directClient.registerAgent(await directRuntime);
-
     return clients;
 }
 
-/**
- * Initializes agents for all configured characters.
- * Iterates through the character list and starts individual agents.
- */
-const startAgents = async () => {
-    for (const character of characters) {
-        await startAgent(character);
+// Modify the existing characterID endpoint
+router.get('/:characterID', async (req: Request, res: Response): Promise<void> => {
+    const characterIDs = req.params.characterID.split(',');
+    
+    try {
+        let characters = await loadCharacters(req.params.characterID);
+        
+        for (const character of characters) {
+            await startAgent(character);
+        }
+        
+        res.send(`Agents started for characters: ${characters.map(c => c.name).join(', ')}`);
+    } catch (error) {
+        logger.error(`Failed to start agents: ${error.message}`);
+        res.status(500).send('Failed to start agents');
     }
-};
-
-startAgents();
-
-const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
 });
 
-/**
- * Handles the interactive chat interface.
- * Provides a readline interface for user input and displays agent responses.
- * Supports 'exit' command to terminate the chat session.
- */
-async function chat() {
-    logger.log("Chat started. Type 'exit' to quit.", 'blue');
-    
-    while (true) {
-        const input = await new Promise<string>(resolve => {
-            rl.question("You: ", resolve);
-        });
+// Mount the router before starting the server
+app.use(router);
 
-        if (input.toLowerCase() === "exit") {
-            rl.close();
-            return;
-        }
-
-        const agentId = characters[0].name.toLowerCase();
-        const response = await fetch(
-            `http://localhost:3000/${agentId}/message`,
-            {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                    text: input,
-                    userId: "user",
-                    userName: "User",
-                }),
-            }
-        );
-
-        const data = await response.json();
-        for (const message of data) {
-            logger.log(`${characters[0].name}: ${message.text}`);
-        }
-    }
-}
-logger.log("Chat started. Type 'exit' to quit.", 'blue');
-chat();
+// Start the Express server
+app.listen(port, () => {
+    logger.log(`Server running at http://localhost:${port}`, 'blue');
+});
 
 
