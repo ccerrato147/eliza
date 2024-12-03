@@ -37,6 +37,14 @@ import { PrettyConsole } from "./cli/colors.ts";
 // Add import for logger
 import logger from "./core/logger.ts";
 
+logger.configure({
+    type: 'google-cloud',
+    projectId: process.env.GOOGLE_PROJECT_ID,
+    logName: process.env.GOOGLE_LOGS_NAME,
+    keyFilename: process.env.GOOGLE_APPLICATION_CREDENTIALS
+});
+
+
 // Parse command line arguments and initialize configuration
 let argv: Arguments = parseArguments();
 
@@ -145,4 +153,5 @@ async function chat() {
 }
 logger.log("Chat started. Type 'exit' to quit.", 'blue');
 chat();
+
 
