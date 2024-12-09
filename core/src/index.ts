@@ -36,12 +36,12 @@ import { PrettyConsole } from "./cli/colors.ts";
 // Add import for logger
 import logger from "./core/logger.ts";
 
-// logger.configure({
-//     type: 'google-cloud',
-//     projectId: process.env.GOOGLE_PROJECT_ID,
-//     logName: process.env.GOOGLE_LOGS_NAME,
-//     keyFilename: process.env.GOOGLE_APPLICATION_CREDENTIALS
-// });
+logger.configure({
+    type: 'google-cloud',
+    projectId: process.env.GOOGLE_PROJECT_ID,
+    logName: process.env.GOOGLE_LOGS_NAME,
+    keyFilename: process.env.GOOGLE_LOGGER_SERVICE_CREDENTIALS
+});
 
 import express, { Express, Request, Response, Router } from 'express';
 
