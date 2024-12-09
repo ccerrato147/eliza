@@ -1,3 +1,12 @@
+/*
+ * Utility functions used by other Twitter client files.
+ * Handles:
+ * - Tweet threading
+ * - Tweet length limitations
+ * - Waiting/delays between actions
+ * - Tweet validation and formatting
+ */
+
 import { Tweet } from "agent-twitter-client";
 import { embeddingZeroVector } from "../../core/memory.ts";
 import { Content, Memory, UUID } from "../../core/types.ts";

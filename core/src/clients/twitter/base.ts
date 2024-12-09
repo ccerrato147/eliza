@@ -1,3 +1,18 @@
+/**
+ * Twitter Client Base Class
+ * 
+ * A foundational class that handles Twitter API interactions for AI agents.
+ * Key features:
+ * - Twitter authentication and session management
+ * - Tweet fetching, caching, and search functionality
+ * - Integration with agent memory system
+ * - Request queue with rate limiting and backoff
+ * - Conversion of Twitter data to agent-compatible memories
+ * 
+ * This base class can be extended for specific Twitter client implementations
+ * while handling common concerns like rate limiting, caching, and data persistence.
+ */
+
 import {
     QueryTweetsResponse,
     Scraper,
@@ -201,80 +216,92 @@ export class ClientBase extends EventEmitter {
 
         // async initialization
         (async () => {
-            // Check for Twitter cookies
-            if (this.runtime.getSetting("TWITTER_COOKIES")) {
-                const cookiesArray = JSON.parse(
-                    this.runtime.getSetting("TWITTER_COOKIES")
-                );
-                await this.setCookiesFromArray(cookiesArray);
-            } else {
-                logger.log("Cookies file path:", cookiesFilePath);
-                if (fs.existsSync(cookiesFilePath)) {
+            try {
+                // Check for Twitter cookies
+                if (this.runtime.getSetting("TWITTER_COOKIES")) {
                     const cookiesArray = JSON.parse(
-                        fs.readFileSync(cookiesFilePath, "utf-8")
+                        this.runtime.getSetting("TWITTER_COOKIES")
                     );
                     await this.setCookiesFromArray(cookiesArray);
                 } else {
-                    await this.twitterClient.login(
-                        this.runtime.getSetting("TWITTER_USERNAME"),
-                        this.runtime.getSetting("TWITTER_PASSWORD"),
-                        this.runtime.getSetting("TWITTER_EMAIL")
-                    );
-                    logger.log("Logged in to Twitter");
-                    const cookies = await this.twitterClient.getCookies();
-                    fs.writeFileSync(
-                        cookiesFilePath,
-                        JSON.stringify(cookies),
-                        "utf-8"
-                    );
+                    logger.log("Cookies file path:", cookiesFilePath);
+                    if (fs.existsSync(cookiesFilePath)) {
+                        const cookiesArray = JSON.parse(
+                            fs.readFileSync(cookiesFilePath, "utf-8")
+                        );
+                        await this.setCookiesFromArray(cookiesArray);
+                    } else {
+                        try {
+                            await this.twitterClient.login(
+                                this.runtime.getSetting("TWITTER_USERNAME"),
+                                this.runtime.getSetting("TWITTER_PASSWORD"),
+                                this.runtime.getSetting("TWITTER_EMAIL")
+                            );
+                            logger.log("Logged in to Twitter");
+                            const cookies = await this.twitterClient.getCookies();
+                            fs.writeFileSync(
+                                cookiesFilePath,
+                                JSON.stringify(cookies),
+                                "utf-8"
+                            );
+                        } catch (error) {
+                            logger.error("Failed to login to Twitter:", error);
+                            // Optionally emit an event for error handling
+                            this.emit('loginError', error);
+                            return; // Exit initialization if login fails
+                        }
+                    }
                 }
-            }
 
-            let loggedInWaits = 0;
+                let loggedInWaits = 0;
 
-            while (!(await this.twitterClient.isLoggedIn())) {
-                logger.log("Waiting for Twitter login");
-                await new Promise((resolve) => setTimeout(resolve, 2000));
-                if (loggedInWaits > 10) {
-                    logger.error("Failed to login to Twitter");
-                    await this.twitterClient.login(
-                        this.runtime.getSetting("TWITTER_USERNAME"),
-                        this.runtime.getSetting("TWITTER_PASSWORD"),
-                        this.runtime.getSetting("TWITTER_EMAIL")
-                    );
+                while (!(await this.twitterClient.isLoggedIn())) {
+                    logger.log("Waiting for Twitter login");
+                    await new Promise((resolve) => setTimeout(resolve, 2000));
+                    if (loggedInWaits > 10) {
+                        logger.error("Failed to login to Twitter");
+                        await this.twitterClient.login(
+                            this.runtime.getSetting("TWITTER_USERNAME"),
+                            this.runtime.getSetting("TWITTER_PASSWORD"),
+                            this.runtime.getSetting("TWITTER_EMAIL")
+                        );
 
-                    const cookies = await this.twitterClient.getCookies();
-                    fs.writeFileSync(
-                        cookiesFilePath,
-                        JSON.stringify(cookies),
-                        "utf-8"
-                    );
-                    loggedInWaits = 0;
+                        const cookies = await this.twitterClient.getCookies();
+                        fs.writeFileSync(
+                            cookiesFilePath,
+                            JSON.stringify(cookies),
+                            "utf-8"
+                        );
+                        loggedInWaits = 0;
+                    }
+                    loggedInWaits++;
                 }
-                loggedInWaits++;
-            }
-            const userId = await this.requestQueue.add(async () => {
-                // wait 3 seconds before getting the user id
-                await new Promise((resolve) => setTimeout(resolve, 10000));
-                try {
-                    return await this.twitterClient.getUserIdByScreenName(
-                        this.runtime.getSetting("TWITTER_USERNAME")
-                    );
-                } catch (error) {
-                    logger.error("Error getting user ID:", error);
-                    return null;
+                const userId = await this.requestQueue.add(async () => {
+                    // wait 3 seconds before getting the user id
+                    await new Promise((resolve) => setTimeout(resolve, 10000));
+                    try {
+                        return await this.twitterClient.getUserIdByScreenName(
+                            this.runtime.getSetting("TWITTER_USERNAME")
+                        );
+                    } catch (error) {
+                        logger.error("Error getting user ID:", error);
+                        return null;
+                    }
+                });
+                if (!userId) {
+                    logger.error("Failed to get user ID");
+                    return;
                 }
-            });
-            if (!userId) {
-                logger.error("Failed to get user ID");
-                return;
+                logger.log("Twitter user ID:", userId);
+                this.twitterUserId = userId;
+
+                await this.populateTimeline();
+
+                this.onReady();
+            } catch (error) {
+                logger.error("Error during Twitter client initialization:", error);
+                this.emit('initializationError', error);
             }
-            logger.log("Twitter user ID:", userId);
-            this.twitterUserId = userId;
-
-            await this.populateTimeline();
-
-            this.onReady();
         })();
     }
 

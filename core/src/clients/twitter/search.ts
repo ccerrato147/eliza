@@ -1,3 +1,20 @@
+/**
+ * Twitter Search Client
+ * 
+ * An automated social media engagement system that searches for and responds to relevant tweets.
+ * The client continuously monitors Twitter for topics of interest, selects engaging tweets using AI,
+ * and generates contextually appropriate responses while maintaining the agent's character voice.
+ * 
+ * Key Features:
+ * - Automated topic-based tweet search and filtering
+ * - AI-powered tweet selection and response generation
+ * - Comprehensive context building (timeline, threads, images)
+ * - Rate limiting and safety features
+ * - Detailed interaction logging
+ * 
+ * Safety measures include avoiding self-replies, non-English tweets, and maintaining response limits.
+ */
+
 import { SearchMode } from "agent-twitter-client";
 import fs from "fs";
 import { composeContext } from "../../core/context.ts";
@@ -111,7 +128,7 @@ export class TwitterSearchClient extends ClientBase {
                 .slice(0, 20);
 
             if (slicedTweets.length === 0) {
-                logger.log(
+                logger.warn(
                     "No valid tweets found for the search term",
                     searchTerm
                 );
@@ -168,8 +185,8 @@ export class TwitterSearchClient extends ClientBase {
             );
 
             if (!selectedTweet) {
-                logger.log("No matching tweet found for the selected ID");
-                return logger.log("Selected tweet ID:", tweetId);
+                logger.warn("No matching tweet found for the selected ID");
+                return logger.warn("Selected tweet ID:", tweetId);
             }
 
             logger.log("Selected tweet to reply to:", selectedTweet?.text);
@@ -178,7 +195,7 @@ export class TwitterSearchClient extends ClientBase {
                 selectedTweet.username ===
                 this.runtime.getSetting("TWITTER_USERNAME")
             ) {
-                logger.log("Skipping tweet from bot itself");
+                logger.warn("Skipping tweet from bot itself");
                 return;
             }
 
@@ -290,7 +307,7 @@ export class TwitterSearchClient extends ClientBase {
             const response = responseContent;
 
             if (!response.text) {
-                logger.log("Returning: No response text found");
+                logger.warn("Returning: No response text found");
                 return;
             }
 
@@ -338,7 +355,7 @@ export class TwitterSearchClient extends ClientBase {
                 fs.writeFileSync(debugFileName, responseInfo);
                 await wait();
             } catch (error) {
-                logger.error(`Error sending response post: ${error}`);
+                logger.error(`Error sending response post:`, error);
             }
         } catch (error) {
             logger.error("Error engaging with search terms:", error);

@@ -1,3 +1,9 @@
+/*
+ * This file handles the automatic generation of new tweets.
+ * It contains the main tweet generation loop and controls tweet timing.
+ * Currently configured to post every 2-20 minutes (random interval).
+ * To adjust tweet frequency, modify the setTimeout interval in generateNewTweetLoop().
+ */
 import { Tweet } from "agent-twitter-client";
 import fs from "fs";
 import { composeContext } from "../../core/context.ts";

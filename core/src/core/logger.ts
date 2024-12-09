@@ -45,6 +45,11 @@ class Logger {
                     severity: 'INFO',
                     resource: {
                         type: 'global'
+                    },
+                    // Add labels for better filtering
+                    labels: {
+                        logType: 'application',
+                        level: 'info'
                     }
                 };
                 const message = args
@@ -97,6 +102,11 @@ class Logger {
                     severity: 'ERROR',
                     resource: {
                         type: 'global'
+                    },
+                    // Add labels for better filtering
+                    labels: {
+                        logType: 'application',
+                        level: 'error'
                     }
                 };
                 const message = args
@@ -127,6 +137,11 @@ class Logger {
                     severity: 'WARNING',
                     resource: {
                         type: 'global'
+                    },
+                    // Add labels for better filtering
+                    labels: {
+                        logType: 'application',
+                        level: 'warning'
                     }
                 };
                 const message = args

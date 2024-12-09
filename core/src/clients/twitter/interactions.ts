@@ -1,3 +1,10 @@
+/*
+ * This file handles responses to mentions and interactions on Twitter.
+ * - Checks for new mentions every 2-5 minutes
+ * - Determines whether to respond to tweets mentioning the agent
+ * - Generates appropriate responses to interactions
+ */
+
 import { SearchMode, Tweet } from "agent-twitter-client";
 import fs from "fs";
 import { composeContext } from "../../core/context.ts";
