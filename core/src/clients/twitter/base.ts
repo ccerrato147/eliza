@@ -38,6 +38,16 @@ import { glob } from "glob";
 import { stringToUuid } from "../../core/uuid.ts";
 import logger from "../../core/logger.ts";
 
+interface TwitterCookie {
+    key: string;
+    value: string;
+    domain: string;
+    path: string;
+    secure: boolean;
+    httpOnly: boolean;
+    sameSite?: string;
+}
+
 export function extractAnswer(text: string): string {
     const startIndex = text.indexOf("Answer: ") + 8;
     const endIndex = text.indexOf("<|endoftext|>", 11);
@@ -223,13 +233,11 @@ export class ClientBase extends EventEmitter {
                         this.runtime.getSetting("TWITTER_COOKIES")
                     );
                     await this.setCookiesFromArray(cookiesArray);
+                    await this.saveCookiesToDatabase(cookiesArray);
                 } else {
-                    logger.log("Cookies file path:", cookiesFilePath);
-                    if (fs.existsSync(cookiesFilePath)) {
-                        const cookiesArray = JSON.parse(
-                            fs.readFileSync(cookiesFilePath, "utf-8")
-                        );
-                        await this.setCookiesFromArray(cookiesArray);
+                    const savedCookies = await this.loadCookiesFromDatabase();
+                    if (savedCookies) {
+                        await this.setCookiesFromArray(savedCookies);
                     } else {
                         try {
                             await this.twitterClient.login(
@@ -239,16 +247,20 @@ export class ClientBase extends EventEmitter {
                             );
                             logger.log("Logged in to Twitter");
                             const cookies = await this.twitterClient.getCookies();
-                            fs.writeFileSync(
-                                cookiesFilePath,
-                                JSON.stringify(cookies),
-                                "utf-8"
-                            );
+                            const cookiesArray = cookies.map(cookie => ({
+                                key: cookie.key,
+                                value: cookie.value,
+                                domain: '.twitter.com',
+                                path: '/',
+                                secure: true,
+                                httpOnly: true,
+                                sameSite: 'Lax'
+                            }));
+                            await this.saveCookiesToDatabase(cookiesArray);
                         } catch (error) {
                             logger.error("Failed to login to Twitter:", error);
-                            // Optionally emit an event for error handling
                             this.emit('loginError', error);
-                            return; // Exit initialization if login fails
+                            return;
                         }
                     }
                 }
@@ -578,7 +590,7 @@ export class ClientBase extends EventEmitter {
         fs.writeFileSync(cacheFile, JSON.stringify(allTweets));
     }
 
-    async setCookiesFromArray(cookiesArray: any[]) {
+    async setCookiesFromArray(cookiesArray: TwitterCookie[]) {
         const cookieStrings = cookiesArray.map(
             (cookie) =>
                 `${cookie.key}=${cookie.value}; Domain=${cookie.domain}; Path=${cookie.path}; ${
@@ -588,6 +600,40 @@ export class ClientBase extends EventEmitter {
                 }`
         );
         await this.twitterClient.setCookies(cookieStrings);
+    }
+
+    private async saveCookiesToDatabase(cookies: TwitterCookie[]) {
+        const memory: Memory = {
+            id: stringToUuid(`twitter-cookies-${this.runtime.agentId}`),
+            userId: this.runtime.agentId,
+            content: {
+                type: 'twitter-cookies',
+                cookies: cookies,
+                text: 'Twitter authentication cookies storage',
+            },
+            agentId: this.runtime.agentId,
+            roomId: stringToUuid(`twitter-system-${this.runtime.agentId}`),
+            embedding: embeddingZeroVector,
+            createdAt: Date.now()
+        };
+
+        await this.runtime.messageManager.createMemory(memory);
+    }
+
+    private async loadCookiesFromDatabase(): Promise<TwitterCookie[] | null> {
+        const memories = await this.runtime.messageManager.getMemories({
+            roomId: stringToUuid(`twitter-system-${this.runtime.agentId}`),
+            count: 1,
+            agentId: this.runtime.agentId
+        });
+
+        const cookieMemory = memories.find(m => 
+            m.content.type === 'twitter-cookies' && 
+            Array.isArray(m.content.cookies) &&
+            m.content.cookies.length > 0
+        );
+
+        return (cookieMemory?.content.cookies as TwitterCookie[]) || null;
     }
 
     async saveRequestMessage(message: Memory, state: State) {

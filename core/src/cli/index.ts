@@ -122,26 +122,26 @@ async function fetchCharacter(uuid: string, apiKey: string): Promise<Character |
 }
 
 export async function loadCharacters(charactersArg: string): Promise<Character[]> {
-    const apiKey = process.env.CHARACTERS_API_KEY;
-    if (!apiKey) {
-        logger.error('CHARACTERS_API_KEY not found in environment variables');
-        logger.log('Falling back to default character');
+    // If no characters argument provided, return default character
+    if (!charactersArg) {
+        logger.log('No characters specified, using default character');
         return [defaultCharacter];
     }
 
-    const characterIds = charactersArg?.split(',').map(id => id.trim()) || [];
-    const loadedCharacters: Character[] = [];
-
-    if (characterIds.length > 0) {
-        const characterPromises = characterIds.map(id => fetchCharacter(id, apiKey));
-        const characters = await Promise.all(characterPromises);
-        
-        loadedCharacters.push(...characters.filter((char): char is Character => char !== null));
+    const apiKey = process.env.CHARACTERS_API_KEY;
+    if (!apiKey) {
+        logger.error('CHARACTERS_API_KEY not found in environment variables');
+        return [];
     }
 
+    const characterIds = charactersArg.split(',').map(id => id.trim());
+    const characterPromises = characterIds.map(id => fetchCharacter(id, apiKey));
+    const characters = await Promise.all(characterPromises);
+    const loadedCharacters = characters.filter((char): char is Character => char !== null);
+
     if (loadedCharacters.length === 0) {
-        logger.log('No characters found or failed to load, using default character');
-        loadedCharacters.push(defaultCharacter);
+        logger.error('Failed to load any of the specified characters');
+        return [];
     }
 
     return loadedCharacters;
