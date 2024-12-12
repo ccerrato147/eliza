@@ -16,6 +16,10 @@ import os from "os";
 import path from "path";
 import models from "../core/models.ts";
 import { IAgentRuntime, ModelProvider } from "../core/types.ts";
+import { createVertex } from "@ai-sdk/google-vertex";
+import settings from "../core/settings.ts";
+import { generateText as aiGenerateText } from "ai";
+import logger from "../core/logger.ts";
 
 class ImageDescriptionService {
     private static instance: ImageDescriptionService | null = null;
@@ -48,116 +52,142 @@ class ImageDescriptionService {
         modelId: string | null = null,
         device: string | null = null
     ): Promise<void> {
-        if (this.initialized) {
-            return;
+        try {
+            if (this.initialized) {
+                return;
+            }
+
+            const model = models[this.runtime.character.settings.model];
+
+            if (model === ModelProvider.LLAMALOCAL) {
+                this.modelId = modelId || "onnx-community/Florence-2-base-ft";
+
+                env.allowLocalModels = false;
+                env.allowRemoteModels = true;
+                env.backends.onnx.logLevel = "fatal";
+                env.backends.onnx.wasm.proxy = false;
+                env.backends.onnx.wasm.numThreads = 1;
+
+                logger.log("Downloading model...");
+
+                this.model =
+                    await Florence2ForConditionalGeneration.from_pretrained(
+                        this.modelId,
+                        {
+                            device: "gpu",
+                            progress_callback: (progress) => {
+                                if (progress.status === "downloading") {
+                                    logger.log(
+                                        `Model download progress: ${JSON.stringify(progress)}`
+                                    );
+                                }
+                            },
+                        }
+                    );
+
+                logger.log("Model downloaded successfully.");
+
+                this.processor = (await AutoProcessor.from_pretrained(
+                    this.modelId
+                )) as Florence2Processor;
+                this.tokenizer = await AutoTokenizer.from_pretrained(this.modelId);
+            } else {
+                this.modelId = "gpt-4o-mini";
+                this.device = "cloud";
+            }
+
+            this.initialized = true;
+        } catch (error) {
+            logger.error("Failed to initialize ImageDescriptionService:", error);
+            // Don't rethrow - allow service to continue in degraded state
+            this.initialized = false;
         }
-
-        const model = models[this.runtime.character.settings.model];
-
-        if (model === ModelProvider.LLAMALOCAL) {
-            this.modelId = modelId || "onnx-community/Florence-2-base-ft";
-
-            env.allowLocalModels = false;
-            env.allowRemoteModels = true;
-            env.backends.onnx.logLevel = "fatal";
-            env.backends.onnx.wasm.proxy = false;
-            env.backends.onnx.wasm.numThreads = 1;
-
-            console.log("Downloading model...");
-
-            this.model =
-                await Florence2ForConditionalGeneration.from_pretrained(
-                    this.modelId,
-                    {
-                        device: "gpu",
-                        progress_callback: (progress) => {
-                            if (progress.status === "downloading") {
-                                console.log(
-                                    `Model download progress: ${JSON.stringify(progress)}`
-                                );
-                            }
-                        },
-                    }
-                );
-
-            console.log("Model downloaded successfully.");
-
-            this.processor = (await AutoProcessor.from_pretrained(
-                this.modelId
-            )) as Florence2Processor;
-            this.tokenizer = await AutoTokenizer.from_pretrained(this.modelId);
-        } else {
-            this.modelId = "gpt-4o-mini";
-            this.device = "cloud";
-        }
-
-        this.initialized = true;
     }
 
     async describeImage(
         imageUrl: string
     ): Promise<{ title: string; description: string }> {
-        if (this.device === "cloud") {
-            return this.recognizeWithOpenAI(imageUrl);
-        } else {
-            this.queue.push(imageUrl);
-            this.processQueue();
+        try {
+            const model = models[this.runtime.character.settings.model];
 
-            return new Promise((resolve, reject) => {
-                const checkQueue = () => {
-                    const index = this.queue.indexOf(imageUrl);
-                    if (index !== -1) {
-                        setTimeout(checkQueue, 100);
-                    } else {
-                        resolve(this.processImage(imageUrl));
-                    }
-                };
-                checkQueue();
-            });
+            if (model === ModelProvider.GOOGLE_VERTEX) {
+                return this.recognizeWithVertex(imageUrl);
+            } else if (this.device === "cloud") {
+                return this.recognizeWithOpenAI(imageUrl);
+            } else {
+                this.queue.push(imageUrl);
+                this.processQueue();
+
+                return new Promise((resolve, reject) => {
+                    const checkQueue = () => {
+                        const index = this.queue.indexOf(imageUrl);
+                        if (index !== -1) {
+                            setTimeout(checkQueue, 100);
+                        } else {
+                            resolve(this.processImage(imageUrl));
+                        }
+                    };
+                    checkQueue();
+                });
+            }
+        } catch (error) {
+            logger.error("Error in describeImage:", error);
+            return {
+                title: "Error Processing Image",
+                description: "Failed to process image due to technical difficulties."
+            };
         }
     }
 
     private async recognizeWithOpenAI(
         imageUrl: string
     ): Promise<{ title: string; description: string }> {
-        const isGif = imageUrl.toLowerCase().endsWith(".gif");
-        let imageData: Buffer | null = null;
-
         try {
-            if (isGif) {
-                console.log("Processing GIF: extracting first frame");
-                const { filePath } =
-                    await this.extractFirstFrameFromGif(imageUrl);
-                imageData = fs.readFileSync(filePath);
-            } else {
-                const response = await fetch(imageUrl);
-                if (!response.ok) {
-                    throw new Error(
-                        `Failed to fetch image: ${response.statusText}`
-                    );
+            const isGif = imageUrl.toLowerCase().endsWith(".gif");
+            let imageData: Buffer | null = null;
+
+            try {
+                if (isGif) {
+                    logger.log("Processing GIF: extracting first frame");
+                    const { filePath } =
+                        await this.extractFirstFrameFromGif(imageUrl);
+                    imageData = fs.readFileSync(filePath);
+                } else {
+                    const response = await fetch(imageUrl);
+                    if (!response.ok) {
+                        throw new Error(
+                            `Failed to fetch image: ${response.statusText}`
+                        );
+                    }
+                    imageData = Buffer.from(await response.arrayBuffer());
                 }
-                imageData = Buffer.from(await response.arrayBuffer());
+
+                if (!imageData || imageData.length === 0) {
+                    throw new Error("Failed to fetch image data");
+                }
+
+                const prompt =
+                    "Describe this image and give it a title. The first line should be the title, and then a line break, then a detailed description of the image. Respond with the format 'title\ndescription'";
+
+                const text = await this.requestOpenAI(
+                    imageUrl,
+                    imageData,
+                    prompt,
+                    isGif
+                );
+                const title = text.split("\n")[0];
+                const description = text.split("\n").slice(1).join("\n");
+                return { title, description };
+            } catch (error) {
+                console.error("Error in recognizeWithOpenAI:", error);
+                throw error;
             }
-
-            if (!imageData || imageData.length === 0) {
-                throw new Error("Failed to fetch image data");
-            }
-
-            const prompt =
-                "Describe this image and give it a title. The first line should be the title, and then a line break, then a detailed description of the image. Respond with the format 'title\ndescription'";
-
-            const text = await this.requestOpenAI(
-                imageUrl,
-                imageData,
-                prompt,
-                isGif
-            );
-            const title = text.split("\n")[0];
-            const description = text.split("\n").slice(1).join("\n");
-            return { title, description };
         } catch (error) {
-            console.error("Error in recognizeWithOpenAI:", error);
-            throw error;
+            logger.error("Error in recognizeWithOpenAI:", error);
+            return {
+                title: "OpenAI Recognition Error",
+                description: "Failed to process image with OpenAI. Please try again later."
+            };
         }
     }
 
@@ -260,13 +290,13 @@ class ImageDescriptionService {
     private async processImage(
         imageUrl: string
     ): Promise<{ title: string; description: string }> {
-        console.log("***** PROCESSING IMAGE", imageUrl);
+        logger.log("Processing image:", imageUrl);
         const isGif = imageUrl.toLowerCase().endsWith(".gif");
         let imageToProcess = imageUrl;
 
         try {
             if (isGif) {
-                console.log("Processing GIF: extracting first frame");
+                logger.log("Processing GIF: extracting first frame");
                 const { filePath } =
                     await this.extractFirstFrameFromGif(imageUrl);
                 imageToProcess = filePath;
@@ -279,22 +309,21 @@ class ImageDescriptionService {
                 this.processor.construct_prompts("<DETAILED_CAPTION>");
             const textInputs = this.tokenizer(prompts);
 
-            console.log("***** GENERATING");
-
+            logger.log("Generating description");
             const generatedIds = (await this.model.generate({
                 ...textInputs,
                 ...visionInputs,
                 max_new_tokens: 256,
             })) as Tensor;
 
-            console.log("***** GENERATED IDS", generatedIds);
+            logger.log("Generated IDs:", generatedIds);
 
             const generatedText = this.tokenizer.batch_decode(generatedIds, {
                 skip_special_tokens: false,
             })[0];
 
-            console.log("***** GENERATED TEXT");
-            console.log(generatedText);
+            logger.log("Generated text");
+            logger.log(generatedText);
 
             const result = this.processor.post_process_generation(
                 generatedText,
@@ -302,8 +331,8 @@ class ImageDescriptionService {
                 image.size
             );
 
-            console.log("***** RESULT");
-            console.log(result);
+            logger.log("Result");
+            logger.log(result);
 
             const detailedCaption = result["<DETAILED_CAPTION>"] as string;
 
@@ -311,10 +340,18 @@ class ImageDescriptionService {
 
             return { title: detailedCaption, description: detailedCaption };
         } catch (error) {
-            console.error("Error in processImage:", error);
+            logger.error("Error in processImage:", error);
+            return {
+                title: "Image Processing Error",
+                description: "Failed to process image. Please try again later."
+            };
         } finally {
             if (isGif && imageToProcess !== imageUrl) {
-                fs.unlinkSync(imageToProcess);
+                try {
+                    fs.unlinkSync(imageToProcess);
+                } catch (error) {
+                    logger.warn("Failed to cleanup temporary GIF frame:", error);
+                }
             }
         }
     }
@@ -342,6 +379,76 @@ class ImageDescriptionService {
 
             writeStream.on("error", reject);
         });
+    }
+
+    private async recognizeWithVertex(
+        imageUrl: string
+    ): Promise<{ title: string; description: string }> {
+        try {
+            const isGif = imageUrl.toLowerCase().endsWith(".gif");
+            let imageData: Buffer | null = null;
+
+            try {
+                if (isGif) {
+                    logger.log("Processing GIF: extracting first frame");
+                    const { filePath } = await this.extractFirstFrameFromGif(imageUrl);
+                    imageData = fs.readFileSync(filePath);
+                } else {
+                    const response = await fetch(imageUrl);
+                    if (!response.ok) {
+                        throw new Error(`Failed to fetch image: ${response.statusText}`);
+                    }
+                    imageData = Buffer.from(await response.arrayBuffer());
+                }
+
+                if (!imageData || imageData.length === 0) {
+                    throw new Error("Failed to fetch image data");
+                }
+
+                const vertex = createVertex({
+                    project: settings.GOOGLE_PROJECT_ID,
+                    location: settings.GOOGLE_PROJECT_LOCATION
+                });
+
+                const base64Image = imageData.toString('base64');
+                const prompt = "Describe this image and give it a title. The first line should be the title, and then a line break, then a detailed description of the image.";
+
+                const { text } = await aiGenerateText({
+                    model: vertex('gemini-pro-vision'),
+                    prompt: prompt,
+                    messages: [
+                        {
+                            role: 'user',
+                            content: [
+                                { type: 'text', text: prompt },
+                                {
+                                    type: 'image',
+                                    image: base64Image
+                                }
+                            ]
+                        }
+                    ]
+                });
+
+                const title = text.split("\n")[0];
+                const description = text.split("\n").slice(1).join("\n");
+
+                return { title, description };
+            } catch (error) {
+                console.error("Error in recognizeWithVertex:", error);
+                throw error;
+            } finally {
+                if (isGif && imageData) {
+                    // Cleanup temporary GIF frame if needed
+                }
+            }
+        } catch (error) {
+            logger.error("Error in recognizeWithVertex:", error);
+            return {
+                title: "Vertex Recognition Error",
+                description: "Failed to process image with Google Vertex AI. Please try again later."
+            };
+        }
     }
 }
 
