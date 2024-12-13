@@ -1,3 +1,13 @@
+/**
+ * PDF Service
+ * 
+ * This service handles the conversion of PDF files to text using the PDF.js library.
+ * It provides functionality to extract text content from PDF documents while maintaining
+ * the document's structure with appropriate spacing and page breaks.
+ * 
+ * @class PdfService
+ */
+
 import { getDocument, PDFDocumentProxy } from "pdfjs-dist";
 import { TextItem, TextMarkedContent } from "pdfjs-dist/types/src/display/api";
 
