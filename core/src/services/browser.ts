@@ -1,3 +1,14 @@
+/**
+ * BrowserService: A robust web scraping service using Playwright
+ * 
+ * Features:
+ * - Singleton browser instance management
+ * - Content caching and queue management
+ * - Automatic CAPTCHA solving (hCaptcha & reCAPTCHA)
+ * - Ad blocking and privacy features
+ * - Fallback to archive.org and Google search for failed requests
+ */
+
 import { PlaywrightBlocker } from "@cliqz/adblocker-playwright";
 import CaptchaSolver from "capsolver-npm";
 import fetch from "cross-fetch";
