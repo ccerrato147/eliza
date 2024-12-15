@@ -107,6 +107,13 @@ export class AgentRuntime implements IAgentRuntime {
     modelProvider = ModelProvider.LLAMALOCAL;
 
     /**
+     * Feature flags for enabling/disabling services
+     */
+    private featureFlags = {
+        enableTranscription: false,  // Disabled by default
+    };
+
+    /**
      * The model to use for image generation.
      */
     imageGenModel: ImageGenModel = ImageGenModel.TogetherAI;
@@ -200,6 +207,7 @@ export class AgentRuntime implements IAgentRuntime {
         databaseAdapter: IDatabaseAdapter; // The database adapter used for interacting with the database
         fetch?: typeof fetch | unknown;
         speechModelPath?: string;
+        enableTranscription?: boolean; // New option to control transcription service
     }) {
         this.#conversationLength =
             opts.conversationLength ?? this.#conversationLength;
@@ -286,7 +294,21 @@ export class AgentRuntime implements IAgentRuntime {
             this.llamaService = LlamaService.getInstance();
         }
 
-        this.transcriptionService = TranscriptionService.getInstance(this);
+        this.featureFlags.enableTranscription = opts.enableTranscription ?? false;
+
+        // Initialize transcription service only if enabled
+        if (this.featureFlags.enableTranscription) {
+            this.transcriptionService = TranscriptionService.getInstance(this);
+        } else {
+            // Initialize with null implementation
+            this.transcriptionService = {
+                transcribe: async () => null,
+                transcribeAttachment: async () => null,
+                transcribeAttachmentLocally: async () => null,
+                transcribeLocally: async () => null
+            };
+            console.log("Transcription service disabled");
+        }
 
         this.imageDescriptionService =
             ImageDescriptionService.getInstance(this);

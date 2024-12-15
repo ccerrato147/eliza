@@ -19,12 +19,10 @@ export class PostgresDatabaseAdapter extends DatabaseAdapter {
     constructor(connectionConfig: any) {
         super();
 
-        this.pool = new Pool({
-            ...connectionConfig,
-            max: 20,
-            idleTimeoutMillis: 30000,
-            connectionTimeoutMillis: 2000,
-        });
+        // Log the connection config (remove sensitive data)
+        console.log('PostgresDatabaseAdapter connection string: ', connectionConfig);
+
+        this.pool = new Pool(connectionConfig);
 
         // Register error handler for pool
         this.pool.on("error", (err) => {

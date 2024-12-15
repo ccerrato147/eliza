@@ -1,0 +1,10 @@
+.env
+.env.test
+db.sqlite
+node_modules
+dist
+tweetcache/
+logs/
+content_cache/
+debug_audio/
+.git

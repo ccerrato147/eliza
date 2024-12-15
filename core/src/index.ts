@@ -48,7 +48,7 @@ import express, { Express, Request, Response, Router } from 'express';
 // Initialize Express app
 const app: Express = express();
 const router = Router();
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 8080;
 
 // Parse command line arguments and initialize configuration
 let argv: Arguments = parseArguments();
@@ -95,20 +95,46 @@ async function startAgent(character: Character) {
     return clients;
 }
 
+// Add error handling middleware
+app.use((err: Error, req: Request, res: Response, next: any) => {
+    logger.error('Express error:', err);
+    res.status(500).send('Internal Server Error');
+});
+
 // Modify the endpoint to handle existing agents
 router.get('/:characterIDs', async (req: Request, res: Response): Promise<void> => {
+    logger.log(`Received request for characters: ${req.params.characterIDs}`, 'blue');
     
     try {
-        let characters = await loadCharacters(req.params.characterIDs);
+        let characters;
+        try {
+            characters = await loadCharacters(req.params.characterIDs);
+            if (!characters || characters.length === 0) {
+                logger.warn(`No characters found for ID: ${req.params.characterIDs}`);
+                res.status(404).send(`No characters found for ID: ${req.params.characterIDs}`);
+                return;
+            }
+        } catch (error) {
+            logger.error(`Failed to load characters: ${error.message}`);
+            res.status(400).send(`Failed to load characters: ${error.message}`);
+            return;
+        }
+
         const startedAgents: string[] = [];
         const existingAgents: string[] = [];
         
         for (const character of characters) {
-            if (runningAgents.has(character.id)) {
-                existingAgents.push(character.name);
-            } else {
-                await startAgent(character);
-                startedAgents.push(character.name);
+            try {
+                if (runningAgents.has(character.id)) {
+                    existingAgents.push(character.name);
+                } else {
+                    await startAgent(character);
+                    startedAgents.push(character.name);
+                }
+            } catch (error) {
+                logger.error(`Failed to start agent ${character.name}: ${error.message}`);
+                res.status(500).send(`Failed to start agent ${character.name}: ${error.message}`);
+                return;
             }
         }
         
@@ -117,10 +143,11 @@ router.get('/:characterIDs', async (req: Request, res: Response): Promise<void> 
             existingAgents.length ? `Agents already running for: ${existingAgents.join(', ')}` : null
         ].filter(Boolean).join('. ');
         
+        logger.log(`Successfully processed request: ${response}`, 'green');
         res.send(response || 'No agents to start');
     } catch (error) {
-        logger.error(`Failed to start agents: ${error.message}`);
-        res.status(500).send('Failed to start agents');
+        logger.error(`Unexpected error: ${error.message}`);
+        res.status(500).send('An unexpected error occurred');
     }
 });
 
@@ -152,5 +179,10 @@ const shutdownTimer = setTimeout(() => {
 
 // Keep the timer reference in case you need to clear it
 shutdownTimer.unref();
+
+// Add near the start of your index.ts file, before database initialization
+console.log('Environment variables:');
+console.log('POSTGRES_URL:', process.env.POSTGRES_URL);
+console.log('Database connection string available:', !!process.env.POSTGRES_URL);
 
 

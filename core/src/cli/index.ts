@@ -122,12 +122,6 @@ async function fetchCharacter(uuid: string, apiKey: string): Promise<Character |
 }
 
 export async function loadCharacters(charactersArg: string): Promise<Character[]> {
-    // If no characters argument provided, return default character
-    if (!charactersArg) {
-        logger.log('No characters specified, using default character');
-        return [defaultCharacter];
-    }
-
     const apiKey = process.env.CHARACTERS_API_KEY;
     if (!apiKey) {
         logger.error('CHARACTERS_API_KEY not found in environment variables');
@@ -135,7 +129,17 @@ export async function loadCharacters(charactersArg: string): Promise<Character[]
     }
 
     const characterIds = charactersArg.split(',').map(id => id.trim());
-    const characterPromises = characterIds.map(id => fetchCharacter(id, apiKey));
+    
+    const characterPromises = characterIds.map(id => {
+        // Check if the ID is "default" and return defaultCharacter
+        if (id.toLowerCase() === 'default') {
+            logger.log('Loading default character');
+            return Promise.resolve(defaultCharacter);
+        }
+        // Otherwise fetch the character from the API
+        return fetchCharacter(id, apiKey);
+    });
+
     const characters = await Promise.all(characterPromises);
     const loadedCharacters = characters.filter((char): char is Character => char !== null);
 

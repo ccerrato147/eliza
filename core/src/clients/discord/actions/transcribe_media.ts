@@ -79,6 +79,12 @@ const transcribeMediaAction = {
             return false;
         }
 
+        // Check if transcription service is available by attempting a test transcription
+        const testTranscript = await runtime.transcriptionService.transcribe(Buffer.from([]));
+        if (testTranscript === null) {
+            return false;
+        }
+
         const keywords: string[] = [
             "transcribe",
             "transcript",

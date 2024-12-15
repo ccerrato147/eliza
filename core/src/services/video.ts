@@ -297,6 +297,12 @@ export class VideoService {
             `${this.getVideoId(url)}.mp3`
         );
 
+        // If transcription service returns null (disabled), return early
+        const testTranscript = await this.runtime.transcriptionService.transcribe(Buffer.from([]));
+        if (testTranscript === null) {
+            return "Transcription service is not available";
+        }
+
         if (!fs.existsSync(mp3FilePath)) {
             if (fs.existsSync(mp4FilePath)) {
                 console.log("MP4 file found. Converting to MP3...");
