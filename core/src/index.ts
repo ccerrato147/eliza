@@ -39,17 +39,25 @@ prettyConsole.useIcons = true;
  * Main function to start the agent
  */
 async function main() {
-    // Parse command line arguments
-    const argv: Arguments = parseArguments();
+    // Add startup indicator
+    console.error('Application starting...');
     
-    if (!argv.character) {
-        logger.error('No character provided. Please use --character parameter.');
-        process.exit(1);
-    }
-
     try {
-        // Load character
-        const characters = await loadCharacters(argv.character);
+        // Parse command line arguments
+        const argv: Arguments = parseArguments();
+        console.error('Arguments parsed successfully:', argv);
+        
+        if (!argv.character) {
+            logger.error('No character provided. Please use --character parameter.');
+            process.exit(1);
+        }
+
+        // Load character with verbose error logging
+        console.error('Attempting to load character...');
+        const characters = await loadCharacters(argv.character).catch(e => {
+            console.error('Error loading characters:', e);
+            throw e;
+        });
         
         if (!characters || characters.length === 0) {
             logger.error(`No character found for ID: ${argv.character}`);
@@ -74,14 +82,32 @@ async function main() {
 
         logger.log(`Agent ${character.name} is running`, 'green');
     } catch (error) {
-        logger.error(`Failed to start agent: ${error.message}`);
+        // More verbose error logging
+        console.error('=== Application Error ===');
+        console.error('Error message:', error.message);
+        console.error('Error stack:', error.stack);
+        console.error('=====================');
         process.exit(1);
     }
 }
 
-// Run the main function
+// Add error handler for uncaught exceptions
+process.on('uncaughtException', (error) => {
+    console.error('Uncaught Exception:');
+    console.error(error.stack || error.message);
+    process.exit(1);
+});
+
+// Add error handler for unhandled rejections
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise);
+    console.error('Reason:', reason);
+    process.exit(1);
+});
+
 main().catch(error => {
-    logger.error('Unexpected error:', error);
+    console.error('Fatal error in main():');
+    console.error(error.stack || error.message);
     process.exit(1);
 });
 
@@ -89,5 +115,3 @@ main().catch(error => {
 console.log('Environment variables:');
 console.log('POSTGRES_URL:', process.env.POSTGRES_URL);
 console.log('Database connection string available:', !!process.env.POSTGRES_URL);
-
-

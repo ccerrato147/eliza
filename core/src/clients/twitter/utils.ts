@@ -108,7 +108,14 @@ export async function sendTweetChunks(
     twitterUsername: string,
     inReplyTo: string
 ): Promise<Memory[]> {
-    const tweetChunks = splitTweetContent(content.text);
+    // Clean up duplicate mentions at the start of the content
+    const cleanedText = content.text.replace(/^(@\w+\s+)+/g, (match) => {
+        // Get unique mentions
+        const mentions = [...new Set(match.trim().split(/\s+/))];
+        return mentions.join(' ') + ' ';
+    });
+
+    const tweetChunks = splitTweetContent(cleanedText);
     const sentTweets: Tweet[] = [];
 
     for (const chunk of tweetChunks) {

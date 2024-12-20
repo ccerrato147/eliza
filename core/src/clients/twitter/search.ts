@@ -30,11 +30,13 @@ import {
     IAgentRuntime,
     ModelClass,
     State,
+    Memory,
 } from "../../core/types.ts";
 import { stringToUuid } from "../../core/uuid.ts";
 import { ClientBase } from "./base.ts";
 import { buildConversationThread, sendTweetChunks, wait } from "./utils.ts";
 import logger from "../../core/logger.ts";
+import { embeddingZeroVector } from "../../core/memory.ts";
 
 const messageHandlerTemplate =
     `{{relevantFacts}}
@@ -349,7 +351,6 @@ export class TwitterSearchClient extends ClientBase {
                     callback
                 );
 
-                this.respondedTweets.add(selectedTweet.id);
                 const responseInfo = `Context:\n\n${context}\n\nSelected Post: ${selectedTweet.id} - ${selectedTweet.username}: ${selectedTweet.text}\nAgent's Output:\n${response.text}`;
                 const debugFileName = `tweetcache/tweet_generation_${selectedTweet.id}.txt`;
 
@@ -358,8 +359,73 @@ export class TwitterSearchClient extends ClientBase {
             } catch (error) {
                 logger.error(`Error sending response post:`, error);
             }
+
+            await this.markTweetAsResponded(selectedTweet.id);
         } catch (error) {
             logger.error("Error engaging with search terms:", error);
         }
+    }
+
+    private async hasRespondedToTweet(tweetId: string): Promise<boolean> {
+        const { tweetCount } = await this.getInteractionCounts(tweetId, tweetId);
+        return tweetCount > 0;
+    }
+
+    private async markTweetAsResponded(tweetId: string): Promise<void> {
+        await this.updateInteractionCounts(tweetId, tweetId);
+    }
+
+    private async getInteractionCounts(tweetId: string, conversationId: string): Promise<{ tweetCount: number, threadCount: number }> {
+        const fullConversationId = conversationId + "-" + this.runtime.agentId;
+        
+        const memories = await this.runtime.messageManager.getMemories({
+            roomId: stringToUuid(`twitter-interactions-${this.runtime.agentId}`),
+            count: 1,
+            agentId: this.runtime.agentId
+        });
+
+        const interactionMemory = memories.find(m => 
+            m.content.type === 'twitter-interaction-counts'
+        );
+
+        return {
+            tweetCount: interactionMemory?.content.tweets?.[tweetId] || 0,
+            threadCount: interactionMemory?.content.threads?.[fullConversationId] || 0
+        };
+    }
+
+    private async updateInteractionCounts(tweetId: string, conversationId: string): Promise<void> {
+        const fullConversationId = conversationId + "-" + this.runtime.agentId;
+        
+        const memories = await this.runtime.messageManager.getMemories({
+            roomId: stringToUuid(`twitter-interactions-${this.runtime.agentId}`),
+            count: 1,
+            agentId: this.runtime.agentId
+        });
+
+        const interactionMemory = memories.find(m => 
+            m.content.type === 'twitter-interaction-counts'
+        );
+
+        const tweets = interactionMemory?.content.tweets || {};
+        const threads = interactionMemory?.content.threads || {};
+
+        tweets[tweetId] = (tweets[tweetId] || 0) + 1;
+        threads[fullConversationId] = (threads[fullConversationId] || 0) + 1;
+
+        const memory: Memory = {
+            id: stringToUuid(`twitter-interactions-${this.runtime.agentId}`),
+            userId: this.runtime.agentId,
+            content: {
+                type: 'twitter-interaction-counts',
+                tweets,
+                threads,
+                text: 'Twitter interaction counts'
+            },
+            agentId: this.runtime.agentId,
+            roomId: stringToUuid(`twitter-interactions-${this.runtime.agentId}`),
+            embedding: embeddingZeroVector,
+            createdAt: Date.now()
+        };
     }
 }

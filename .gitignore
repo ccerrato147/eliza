@@ -32,3 +32,5 @@ timeline_cache.json
 
 *.sqlite
 characters/
+
+.vscode/
