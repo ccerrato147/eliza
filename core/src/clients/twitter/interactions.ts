@@ -28,6 +28,9 @@ import {
     generateMessageResponse,
     generateShouldRespond,
 } from "../../core/generation.ts";
+import { embeddingZeroVector } from "../../core/memory.ts";
+
+const MAX_INTERACTIONS_PER_THREAD = 5;
 
 export const messageHandlerTemplate =
     `{{relevantFacts}}
@@ -190,6 +193,58 @@ export class TwitterInteractionClient extends ClientBase {
         }
     }
 
+    private async getInteractionCounts(tweetId: string, conversationId: string): Promise<{ tweetCount: number, threadCount: number }> {
+        const memories = await this.runtime.messageManager.getMemories({
+            roomId: stringToUuid(`twitter-interactions-${this.runtime.agentId}`),
+            count: 1,
+            agentId: this.runtime.agentId
+        });
+
+        const interactionMemory = memories.find(m => 
+            m.content.type === 'twitter-interaction-counts'
+        );
+
+        return {
+            tweetCount: interactionMemory?.content.tweets?.[tweetId] || 0,
+            threadCount: interactionMemory?.content.threads?.[conversationId] || 0
+        };
+    }
+
+    private async updateInteractionCounts(tweetId: string, conversationId: string): Promise<void> {
+        const memories = await this.runtime.messageManager.getMemories({
+            roomId: stringToUuid(`twitter-interactions-${this.runtime.agentId}`),
+            count: 1,
+            agentId: this.runtime.agentId
+        });
+
+        const interactionMemory = memories.find(m => 
+            m.content.type === 'twitter-interaction-counts'
+        );
+
+        const tweets = interactionMemory?.content.tweets || {};
+        const threads = interactionMemory?.content.threads || {};
+
+        tweets[tweetId] = (tweets[tweetId] || 0) + 1;
+        threads[conversationId] = (threads[conversationId] || 0) + 1;
+
+        const memory: Memory = {
+            id: stringToUuid(`twitter-interactions-${this.runtime.agentId}`),
+            userId: this.runtime.agentId,
+            content: {
+                type: 'twitter-interaction-counts',
+                tweets,
+                threads,
+                text: 'Twitter interaction counts'
+            },
+            agentId: this.runtime.agentId,
+            roomId: stringToUuid(`twitter-interactions-${this.runtime.agentId}`),
+            embedding: embeddingZeroVector,
+            createdAt: Date.now()
+        };
+
+        await this.runtime.messageManager.createMemory(memory);
+    }
+
     private async handleTweet({
         tweet,
         message,
@@ -197,6 +252,18 @@ export class TwitterInteractionClient extends ClientBase {
         tweet: Tweet;
         message: Memory;
     }) {
+        const { tweetCount, threadCount } = await this.getInteractionCounts(tweet.id, tweet.conversationId);
+
+        if (tweetCount > 0) {
+            logger.log(`Skipping tweet ${tweet.id} - already replied`);
+            return { text: "", action: "STOP" };
+        }
+
+        if (threadCount >= MAX_INTERACTIONS_PER_THREAD) {
+            logger.log(`Skipping tweet - exceeded maximum interactions (${MAX_INTERACTIONS_PER_THREAD}) for thread ${tweet.conversationId}`);
+            return { text: "", action: "STOP" };
+        }
+
         if (tweet.username === this.runtime.getSetting("TWITTER_USERNAME")) {
             logger.log("skipping tweet from bot itself", tweet.id);
             // Skip processing if the tweet is from the bot itself
@@ -323,6 +390,7 @@ export class TwitterInteractionClient extends ClientBase {
         if (response.text) {
             try {
                 if (!this.dryRun) {
+                    await this.updateInteractionCounts(tweet.id, tweet.conversationId);
                     const callback: HandlerCallback = async (
                         response: Content
                     ) => {
