@@ -306,9 +306,7 @@ export async function startTwitter(runtime: IAgentRuntime) {
     logger.log("Starting Twitter clients...");
     const twitterSearchClient = new Client.TwitterSearchClient(runtime);
     await wait();
-    const twitterInteractionClient = new Client.TwitterInteractionClient(
-        runtime
-    );
+    const twitterInteractionClient = new Client.TwitterInteractionClient(runtime);
     await wait();
     const twitterGenerationClient = new Client.TwitterGenerationClient(runtime);
 

@@ -69,47 +69,113 @@ Your response should not contain any questions. Brief, concise statements only. 
 ` + messageCompletionFooter;
 
 export class TwitterSearchClient extends ClientBase {
-    private respondedTweets: Set<string> = new Set();
+    private searchInterval: NodeJS.Timeout | null = null;
 
     constructor(runtime: IAgentRuntime) {
-        // Initialize the client and pass an optional callback to be called when the client is ready
         super({
             runtime,
         });
     }
 
     async onReady() {
-        this.engageWithSearchTermsLoop();
+        // Start the search loop immediately
+        this.engageWithSearchTerms();
+        
+        // Set up recurring interval
+        this.searchInterval = setInterval(() => {
+            this.engageWithSearchTerms();
+        }, 5 * 60 * 1000); // 5 minutes
     }
 
-    private engageWithSearchTermsLoop() {
-        this.engageWithSearchTerms();
-        setTimeout(
-            () => this.engageWithSearchTermsLoop(),
-            2 * 60 * 1000  // 2 minutes in milliseconds
-            //(Math.floor(Math.random() * (120 - 60 + 1)) + 60) * 60 * 1000
-        );
+    // Clean up method to clear interval if needed
+    async onStop() {
+        if (this.searchInterval) {
+            clearInterval(this.searchInterval);
+            this.searchInterval = null;
+        }
+    }
+
+    private async hasProcessedTweet(tweetId: string): Promise<boolean> {
+        const processedTweetId = stringToUuid(`twitter-search-${tweetId}-${this.runtime.agentId}`);
+        try {
+            const memory = await this.runtime.messageManager.getMemoryById(processedTweetId);
+            return !!memory;
+        } catch (error) {
+            logger.error(`Error checking processed tweet ${tweetId}:`, error);
+            return false;
+        }
+    }
+
+    private async markTweetAsProcessed(tweetId: string): Promise<void> {
+        const processedTweetId = stringToUuid(`twitter-search-${tweetId}-${this.runtime.agentId}`);
+        const memory: Memory = {
+            id: processedTweetId,
+            userId: this.runtime.agentId,
+            content: {
+                type: 'twitter-search-processed',
+                tweetId: tweetId,
+                text: `Search-processed tweet ${tweetId} for agent ${this.runtime.agentId}`
+            },
+            agentId: this.runtime.agentId,
+            roomId: stringToUuid(`twitter-search-${this.runtime.agentId}`),
+            embedding: embeddingZeroVector,
+            createdAt: Date.now()
+        };
+
+        try {
+            await this.runtime.messageManager.createMemory(memory);
+            logger.log(`Marked tweet ${tweetId} as search-processed`);
+        } catch (error) {
+            logger.error(`Failed to mark tweet ${tweetId} as search-processed:`, error);
+            throw error;
+        }
     }
 
     private async engageWithSearchTerms() {
-        logger.log("Engaging with search terms");
+        logger.log("Starting search engagement cycle");
         try {
             const searchTerm = [...this.runtime.character.topics][
                 Math.floor(Math.random() * this.runtime.character.topics.length)
             ];
 
-            if (!fs.existsSync("tweetcache")) {
-                fs.mkdirSync("tweetcache");
+            if (!searchTerm) {
+                logger.error("No search terms available");
+                return;
             }
-            logger.log("Fetching search tweets");
-            // TODO: we wait 5 seconds here to avoid getting rate limited on startup, but we should queue
-            await new Promise((resolve) => setTimeout(resolve, 5000));
+
+            logger.log(`Searching for term: "${searchTerm}"`);
             const recentTweets = await this.fetchSearchTweets(
                 searchTerm,
                 20,
-                SearchMode.Top
+                SearchMode.Latest  // Fixed: using Latest instead of Recent
             );
-            logger.log("Search tweets fetched");
+            logger.log(`Found ${recentTweets.tweets.length} tweets for search term`);
+
+            // Filter out already processed tweets
+            const unprocessedTweets = await Promise.all(
+                recentTweets.tweets.map(async (tweet) => {
+                    const isProcessed = await this.hasProcessedTweet(tweet.id);
+                    return !isProcessed ? tweet : null;
+                })
+            );
+
+            const validTweets = unprocessedTweets
+                .filter(tweet => tweet !== null)
+                .filter((tweet) => {
+                    // ignore tweets where any of the thread tweets contain a tweet by the bot
+                    const thread = tweet.thread;
+                    const botTweet = thread.find(
+                        (t) => t.username === this.runtime.getSetting("TWITTER_USERNAME")
+                    );
+                    return !botTweet;
+                });
+
+            if (validTweets.length === 0) {
+                logger.log(`No unprocessed tweets found for term: ${searchTerm}`);
+                return;
+            }
+
+            logger.log(`Found ${validTweets.length} valid unprocessed tweets`);
 
             const homeTimeline = await this.fetchHomeTimeline(50);
             fs.writeFileSync(
@@ -126,7 +192,7 @@ export class TwitterSearchClient extends ClientBase {
                     .join("\n");
 
             // randomly slice .tweets down to 20
-            const slicedTweets = recentTweets.tweets
+            const slicedTweets = validTweets
                 .sort(() => Math.random() - 0.5)
                 .slice(0, 20);
 
@@ -142,14 +208,6 @@ export class TwitterSearchClient extends ClientBase {
   Here are some tweets related to the search term "${searchTerm}":
   
   ${[...slicedTweets, ...homeTimeline]
-      .filter((tweet) => {
-          // ignore tweets where any of the thread tweets contain a tweet by the bot
-          const thread = tweet.thread;
-          const botTweet = thread.find(
-              (t) => t.username === this.runtime.getSetting("TWITTER_USERNAME")
-          );
-          return !botTweet;
-      })
       .map(
           (tweet) => `
     ID: ${tweet.id}${tweet.inReplyToStatusId ? ` In reply to: ${tweet.inReplyToStatusId}` : ""}
@@ -202,6 +260,9 @@ export class TwitterSearchClient extends ClientBase {
                 return;
             }
 
+            // Mark the tweet as processed BEFORE handling it
+            await this.markTweetAsProcessed(selectedTweet.id);
+
             const conversationId = selectedTweet.conversationId;
             const roomId = stringToUuid(conversationId + "-" + this.runtime.agentId);
 
@@ -230,7 +291,6 @@ export class TwitterSearchClient extends ClientBase {
                 },
                 userId: userIdUUID,
                 roomId,
-                // Timestamps are in seconds, but we need them in milliseconds
                 createdAt: selectedTweet.timestamp * 1000,
             };
 
@@ -359,73 +419,8 @@ export class TwitterSearchClient extends ClientBase {
             } catch (error) {
                 logger.error(`Error sending response post:`, error);
             }
-
-            await this.markTweetAsResponded(selectedTweet.id);
         } catch (error) {
             logger.error("Error engaging with search terms:", error);
         }
-    }
-
-    private async hasRespondedToTweet(tweetId: string): Promise<boolean> {
-        const { tweetCount } = await this.getInteractionCounts(tweetId, tweetId);
-        return tweetCount > 0;
-    }
-
-    private async markTweetAsResponded(tweetId: string): Promise<void> {
-        await this.updateInteractionCounts(tweetId, tweetId);
-    }
-
-    private async getInteractionCounts(tweetId: string, conversationId: string): Promise<{ tweetCount: number, threadCount: number }> {
-        const fullConversationId = conversationId + "-" + this.runtime.agentId;
-        
-        const memories = await this.runtime.messageManager.getMemories({
-            roomId: stringToUuid(`twitter-interactions-${this.runtime.agentId}`),
-            count: 1,
-            agentId: this.runtime.agentId
-        });
-
-        const interactionMemory = memories.find(m => 
-            m.content.type === 'twitter-interaction-counts'
-        );
-
-        return {
-            tweetCount: interactionMemory?.content.tweets?.[tweetId] || 0,
-            threadCount: interactionMemory?.content.threads?.[fullConversationId] || 0
-        };
-    }
-
-    private async updateInteractionCounts(tweetId: string, conversationId: string): Promise<void> {
-        const fullConversationId = conversationId + "-" + this.runtime.agentId;
-        
-        const memories = await this.runtime.messageManager.getMemories({
-            roomId: stringToUuid(`twitter-interactions-${this.runtime.agentId}`),
-            count: 1,
-            agentId: this.runtime.agentId
-        });
-
-        const interactionMemory = memories.find(m => 
-            m.content.type === 'twitter-interaction-counts'
-        );
-
-        const tweets = interactionMemory?.content.tweets || {};
-        const threads = interactionMemory?.content.threads || {};
-
-        tweets[tweetId] = (tweets[tweetId] || 0) + 1;
-        threads[fullConversationId] = (threads[fullConversationId] || 0) + 1;
-
-        const memory: Memory = {
-            id: stringToUuid(`twitter-interactions-${this.runtime.agentId}`),
-            userId: this.runtime.agentId,
-            content: {
-                type: 'twitter-interaction-counts',
-                tweets,
-                threads,
-                text: 'Twitter interaction counts'
-            },
-            agentId: this.runtime.agentId,
-            roomId: stringToUuid(`twitter-interactions-${this.runtime.agentId}`),
-            embedding: embeddingZeroVector,
-            createdAt: Date.now()
-        };
     }
 }
