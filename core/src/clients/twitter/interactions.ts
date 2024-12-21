@@ -201,6 +201,29 @@ export class TwitterInteractionClient extends ClientBase {
         }
     }
 
+    private async countThreadInteractions(conversationId: string): Promise<number> {
+        try {
+            // Get all memories for this conversation that were created by this agent
+            const memories = await this.runtime.messageManager.getMemories({
+                roomId: stringToUuid(conversationId + "-" + this.runtime.agentId),
+                agentId: this.runtime.agentId,
+                count: MAX_INTERACTIONS_PER_THREAD + 1, // +1 to check if we're over the limit
+            });
+            
+            // Only count memories that are actual tweet responses (not processing markers)
+            // Filter out memories that have type 'twitter-processed' or don't have text content
+            const responseCount = memories.filter(memory => 
+                memory.content.text && 
+                (!memory.content.type || memory.content.type !== 'twitter-processed')
+            ).length;
+            
+            return responseCount;
+        } catch (error) {
+            logger.error("Error counting thread interactions:", error);
+            return 0;
+        }
+    }
+
     async handleTwitterInteractions() {
         logger.log("Checking Twitter interactions");
         try {
@@ -295,6 +318,18 @@ export class TwitterInteractionClient extends ClientBase {
         message: Memory;
     }) {
         try {
+            // Check thread interaction count early
+            try {
+                const interactionCount = await this.countThreadInteractions(tweet.conversationId);
+                if (interactionCount >= MAX_INTERACTIONS_PER_THREAD) {
+                    logger.log(`Skipping tweet ${tweet.id} - reached max interactions (${MAX_INTERACTIONS_PER_THREAD}) for thread`);
+                    return { text: "", action: "IGNORE" };
+                }
+            } catch (error) {
+                logger.error(`Error checking thread interaction count for tweet ${tweet.id}:`, error);
+                // Continue processing the tweet if we can't check the count
+            }
+
             // Save the tweet message if it doesn't exist
             const tweetId = stringToUuid(tweet.id + "-" + this.runtime.agentId);
             const tweetExists = await this.runtime.messageManager.getMemoryById(tweetId);
