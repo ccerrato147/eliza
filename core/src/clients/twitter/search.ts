@@ -84,7 +84,7 @@ export class TwitterSearchClient extends ClientBase {
         // Set up recurring interval
         this.searchInterval = setInterval(() => {
             this.engageWithSearchTerms();
-        }, 5 * 60 * 1000); // 5 minutes
+        }, (Math.floor(Math.random() * (120 - 60 + 1)) + 60) * 60 * 1000); // 60 - 120 minutes
     }
 
     // Clean up method to clear interval if needed
