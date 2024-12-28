@@ -34,7 +34,7 @@ import {
 } from "../../core/generation.ts";
 import { embeddingZeroVector } from "../../core/memory.ts";
 
-const MAX_INTERACTIONS_PER_THREAD = 3;
+const MAX_INTERACTIONS_PER_THREAD = 7;
 
 export const messageHandlerTemplate =
     `{{relevantFacts}}
@@ -203,21 +203,9 @@ export class TwitterInteractionClient extends ClientBase {
 
     private async countThreadInteractions(conversationId: string): Promise<number> {
         try {
-            // Get all memories for this conversation that were created by this agent
-            const memories = await this.runtime.messageManager.getMemories({
-                roomId: stringToUuid(conversationId + "-" + this.runtime.agentId),
-                agentId: this.runtime.agentId,
-                count: MAX_INTERACTIONS_PER_THREAD + 1, // +1 to check if we're over the limit
-            });
-            
-            // Only count memories that are actual tweet responses (not processing markers)
-            // Filter out memories that have type 'twitter-processed' or don't have text content
-            const responseCount = memories.filter(memory => 
-                memory.content.text && 
-                (!memory.content.type || memory.content.type !== 'twitter-processed')
-            ).length;
-            
-            return responseCount;
+            const roomId = stringToUuid(conversationId + "-" + this.runtime.agentId);
+            const count = await this.runtime.messageManager.countMemories(roomId, false);
+            return count;
         } catch (error) {
             logger.error("Error counting thread interactions:", error);
             return 0;
@@ -225,7 +213,6 @@ export class TwitterInteractionClient extends ClientBase {
     }
 
     async handleTwitterInteractions() {
-        logger.log("Checking Twitter interactions");
         try {
             // Check for mentions
             const tweetCandidates = (
@@ -237,11 +224,8 @@ export class TwitterInteractionClient extends ClientBase {
             ).tweets;
 
             if (!tweetCandidates || tweetCandidates.length === 0) {
-                logger.log("No new tweets found");
                 return;
             }
-
-            logger.log(`Found ${tweetCandidates.length} tweet candidates`);
 
             // de-duplicate tweetCandidates and filter out self-tweets
             const uniqueTweetCandidates = [...new Set(tweetCandidates)]
@@ -321,19 +305,15 @@ export class TwitterInteractionClient extends ClientBase {
             // Check thread interaction count early, adding 1 to account for this new interaction
             try {
                 const interactionCount = await this.countThreadInteractions(tweet.conversationId);
-                // We add 1 to account for the interaction we're about to make
-                if ((interactionCount + 1) >= MAX_INTERACTIONS_PER_THREAD) {
-                    logger.log(`Skipping tweet ${tweet.id} - would exceed max interactions (${MAX_INTERACTIONS_PER_THREAD}) for thread`);
+                if ((interactionCount) >= MAX_INTERACTIONS_PER_THREAD) {
                     return;
                 }
             } catch (error) {
                 logger.error(`Error checking thread interaction count for tweet ${tweet.id}:`, error);
-                // Continue processing the tweet if we can't check the count
+                return;
             }
 
             if (tweet.username === this.runtime.getSetting("TWITTER_USERNAME")) {
-                logger.log("skipping tweet from bot itself", tweet.id);
-                // Skip processing if the tweet is from the bot itself
                 return;
             }
 

@@ -625,6 +625,19 @@ export class AgentRuntime implements IAgentRuntime {
             );
         }
     }
+    /**
+     * Ensures all necessary connections exist between a user and a room.
+     * This includes:
+     * - Creating the agent and user accounts if they don't exist
+     * - Creating the room if it doesn't exist 
+     * - Adding both the user and agent as participants in the room
+     * 
+     * @param userId - The ID of the user to connect
+     * @param roomId - The ID of the room to connect to
+     * @param userName - Optional username for the user
+     * @param userScreenName - Optional display name for the user
+     * @param source - Optional source platform (e.g. "twitter", "discord")
+     */
 
     async ensureConnection(
         userId: UUID,
