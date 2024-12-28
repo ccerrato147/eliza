@@ -34,7 +34,7 @@ import {
 } from "../../core/generation.ts";
 import { embeddingZeroVector } from "../../core/memory.ts";
 
-const MAX_INTERACTIONS_PER_THREAD = 5;
+const MAX_INTERACTIONS_PER_THREAD = 3;
 
 export const messageHandlerTemplate =
     `{{relevantFacts}}
@@ -318,16 +318,23 @@ export class TwitterInteractionClient extends ClientBase {
         message: Memory;
     }) {
         try {
-            // Check thread interaction count early
+            // Check thread interaction count early, adding 1 to account for this new interaction
             try {
                 const interactionCount = await this.countThreadInteractions(tweet.conversationId);
-                if (interactionCount >= MAX_INTERACTIONS_PER_THREAD) {
-                    logger.log(`Skipping tweet ${tweet.id} - reached max interactions (${MAX_INTERACTIONS_PER_THREAD}) for thread`);
-                    return { text: "", action: "IGNORE" };
+                // We add 1 to account for the interaction we're about to make
+                if ((interactionCount + 1) >= MAX_INTERACTIONS_PER_THREAD) {
+                    logger.log(`Skipping tweet ${tweet.id} - would exceed max interactions (${MAX_INTERACTIONS_PER_THREAD}) for thread`);
+                    return;
                 }
             } catch (error) {
                 logger.error(`Error checking thread interaction count for tweet ${tweet.id}:`, error);
                 // Continue processing the tweet if we can't check the count
+            }
+
+            if (tweet.username === this.runtime.getSetting("TWITTER_USERNAME")) {
+                logger.log("skipping tweet from bot itself", tweet.id);
+                // Skip processing if the tweet is from the bot itself
+                return;
             }
 
             // Save the tweet message if it doesn't exist
@@ -357,12 +364,6 @@ export class TwitterInteractionClient extends ClientBase {
 
                 await this.runtime.messageManager.addEmbeddingToMemory(tweetMemory);
                 await this.runtime.messageManager.createMemory(tweetMemory);
-            }
-
-            if (tweet.username === this.runtime.getSetting("TWITTER_USERNAME")) {
-                logger.log("skipping tweet from bot itself", tweet.id);
-                // Skip processing if the tweet is from the bot itself
-                return;
             }
 
             if (!message.content.text) {
