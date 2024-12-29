@@ -39,23 +39,22 @@ prettyConsole.useIcons = true;
  * Main function to start the agent
  */
 async function main() {
-    // Add startup indicator
-    console.error('Application starting...');
+    // Change console.error to logger.log
+    logger.log('Application starting...', 'info');
     
     try {
-        // Parse command line arguments
         const argv: Arguments = parseArguments();
-        console.error('Arguments parsed successfully:', argv);
+        logger.log('Arguments parsed successfully: ' + JSON.stringify(argv), 'info');
         
         if (!argv.character) {
             logger.error('No character provided. Please use --character parameter.');
             process.exit(1);
         }
 
-        // Load character with verbose error logging
-        console.error('Attempting to load character...');
+        // Update character loading logs
+        logger.log('Attempting to load character...', 'info');
         const characters = await loadCharacters(argv.character).catch(e => {
-            console.error('Error loading characters:', e);
+            logger.error('Error loading characters: ' + e);
             throw e;
         });
         
@@ -82,36 +81,61 @@ async function main() {
 
         logger.log(`Agent ${character.name} is running`, 'green');
     } catch (error) {
-        // More verbose error logging
-        console.error('=== Application Error ===');
-        console.error('Error message:', error.message);
-        console.error('Error stack:', error.stack);
-        console.error('=====================');
+        // Create a structured error log entry with metadata
+        const errorData = {
+            severity: 'ERROR',
+            message: error.message,
+            stack: error.stack,
+            context: {
+                type: 'APPLICATION_ERROR',
+                timestamp: new Date().toISOString(),
+                processId: process.pid,
+                nodeVersion: process.version
+            }
+        };
+        
+        logger.error(errorData);
         process.exit(1);
     }
 }
 
-// Add error handler for uncaught exceptions
+// Update uncaught exception handler with structured logging
 process.on('uncaughtException', (error) => {
-    console.error('Uncaught Exception:');
-    console.error(error.stack || error.message);
+    const errorData = {
+        severity: 'ERROR',
+        message: error.message,
+        stack: error.stack,
+        context: {
+            type: 'UNCAUGHT_EXCEPTION',
+            timestamp: new Date().toISOString(),
+            processId: process.pid,
+            nodeVersion: process.version
+        }
+    };
+    logger.error(errorData);
     process.exit(1);
 });
 
-// Add error handler for unhandled rejections
+// Update unhandled rejection handler with structured logging
 process.on('unhandledRejection', (reason, promise) => {
-    console.error('Unhandled Rejection at:', promise);
-    console.error('Reason:', reason);
+    const errorData = {
+        severity: 'ERROR',
+        message: reason instanceof Error ? reason.message : String(reason),
+        stack: reason instanceof Error ? reason.stack : undefined,
+        context: {
+            type: 'UNHANDLED_REJECTION',
+            timestamp: new Date().toISOString(),
+            processId: process.pid,
+            nodeVersion: process.version,
+            promise: promise.toString()
+        }
+    };
+    logger.error(errorData);
     process.exit(1);
 });
 
 main().catch(error => {
-    console.error('Fatal error in main():');
-    console.error(error.stack || error.message);
+    logger.error('Fatal error in main():');
+    logger.error(error.stack || error.message);
     process.exit(1);
 });
-
-// Log environment variables
-console.log('Environment variables:');
-console.log('POSTGRES_URL:', process.env.POSTGRES_URL);
-console.log('Database connection string available:', !!process.env.POSTGRES_URL);
