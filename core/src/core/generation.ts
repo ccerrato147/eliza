@@ -197,13 +197,12 @@ export async function generateText({
             case ModelProvider.GOOGLE_VERTEX: {
                 logger.log("Initializing Vertex AI model.");
                 const vertex = createVertex({
-                    project: settings.GOOGLE_PROJECT_ID, // 'dega-dbb-uat', // Your Google Cloud project ID
-                    location: settings.GOOGLE_PROJECT_LOCATION //'us-central1',    // The region for Vertex AI services
-                    // Optional: Additional authentication options can be specified here
+                    project: settings.GOOGLE_PROJECT_ID,
+                    location: settings.GOOGLE_PROJECT_LOCATION
                 });
-            
+
                 const { text: vertexResponse } = await aiGenerateText({
-                    model: vertex('gemini-1.5-pro'), // Specify the model ID
+                    model: vertex('gemini-1.5-flash'),
                     prompt: context,
                     temperature: temperature,
                     maxTokens: max_response_length,
