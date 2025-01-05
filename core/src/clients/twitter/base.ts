@@ -86,7 +86,15 @@ class RequestQueue {
             try {
                 await request();
             } catch (error) {
-                logger.error("Error processing request:", error);
+                logger.error("Error processing request", {
+                    severity: 'ERROR',
+                    method: 'base.RequestQueue.processQueue',
+                    queueLength: this.queue.length,
+                    errorMessage: error.message,
+                    errorStack: error.stack,
+                    timestamp: new Date().toISOString(),
+                    error: error
+                });
                 this.queue.unshift(request);
                 await this.exponentialBackoff(this.queue.length);
             }
@@ -296,7 +304,16 @@ export class ClientBase extends EventEmitter {
                             this.runtime.getSetting("TWITTER_USERNAME")
                         );
                     } catch (error) {
-                        logger.error("Error getting user ID:", error);
+                        logger.error("Error getting user ID:", {
+                            severity: 'ERROR',
+                            method: 'base.ClientBase.getUserIdByScreenName',
+                            agentId: this.runtime.agentId,
+                            username: this.runtime.getSetting("TWITTER_USERNAME"),
+                            errorMessage: error.message,
+                            errorStack: error.stack,
+                            timestamp: new Date().toISOString(),
+                            error: error
+                        });
                         return null;
                     }
                 });
@@ -311,7 +328,15 @@ export class ClientBase extends EventEmitter {
 
                 this.onReady();
             } catch (error) {
-                logger.error("Error during Twitter client initialization:", error);
+                logger.error("Error during Twitter client initialization:", {
+                    severity: 'ERROR',
+                    method: 'base.ClientBase.constructor',
+                    agentId: this.runtime.agentId,
+                    errorMessage: error.message,
+                    errorStack: error.stack,
+                    timestamp: new Date().toISOString(),
+                    error: error
+                });
                 this.emit('initializationError', error);
             }
         })();
@@ -397,7 +422,18 @@ export class ClientBase extends EventEmitter {
                 );
                 return (result ?? { tweets: [] }) as QueryTweetsResponse;
             } catch (error) {
-                logger.error("Error fetching search tweets:", error);
+                logger.error("Error fetching search tweets:", {
+                    severity: 'ERROR',
+                    method: 'base.ClientBase.fetchSearchTweets',
+                    agentId: this.runtime.agentId,
+                    query,
+                    maxTweets,
+                    searchMode,
+                    errorMessage: error.message,
+                    errorStack: error.stack,
+                    timestamp: new Date().toISOString(),
+                    error: error
+                });
                 return { tweets: [] };
             }
         } catch (error) {

@@ -122,7 +122,17 @@ export class TwitterInteractionClient extends ClientBase {
             this.lastCheckedTweetId = typeof savedId === 'number' ? savedId : null;
             logger.log(`Loaded last checked tweet ID: ${this.lastCheckedTweetId}`);
         } catch (error) {
-            logger.error('Failed to load last checked tweet ID:', error);
+            logger.error('Failed to load last checked tweet ID', {
+                severity: 'ERROR',
+                method: 'interactions.TwitterInteractionClient.loadLastCheckedTweetId',
+                agentId: this.runtime.agentId,
+                twitterUsername: this.runtime.getSetting("TWITTER_USERNAME"),
+                stateId: stateId,
+                errorMessage: error.message,
+                errorStack: error.stack,
+                timestamp: new Date().toISOString(),
+                error: error
+            });
             this.lastCheckedTweetId = null;
         }
     }
@@ -160,7 +170,18 @@ export class TwitterInteractionClient extends ClientBase {
                 logger.log(`Created new state with last checked tweet ID: ${tweetId}`);
             }
         } catch (error) {
-            logger.error('Failed to save/update last checked tweet ID:', error);
+            logger.error('Failed to save/update last checked tweet ID', {
+                severity: 'ERROR',
+                method: 'interactions.TwitterInteractionClient.saveLastCheckedTweetId',
+                agentId: this.runtime.agentId,
+                twitterUsername: this.runtime.getSetting("TWITTER_USERNAME"),
+                stateId: stateId,
+                tweetId: tweetId,
+                errorMessage: error.message,
+                errorStack: error.stack,
+                timestamp: new Date().toISOString(),
+                error: error
+            });
             throw error;
         }
     }
@@ -171,7 +192,18 @@ export class TwitterInteractionClient extends ClientBase {
             const memory = await this.runtime.messageManager.getMemoryById(processedTweetId);
             return !!memory;
         } catch (error) {
-            logger.error(`Error checking processed tweet ${tweetId}:`, error);
+            logger.error('Error checking processed tweet', {
+                severity: 'ERROR',
+                method: 'interactions.TwitterInteractionClient.hasProcessedTweet',
+                agentId: this.runtime.agentId,
+                twitterUsername: this.runtime.getSetting("TWITTER_USERNAME"),
+                tweetId: tweetId,
+                processedTweetId: processedTweetId,
+                errorMessage: error.message,
+                errorStack: error.stack,
+                timestamp: new Date().toISOString(),
+                error: error
+            });
             return false;
         }
     }
@@ -196,7 +228,18 @@ export class TwitterInteractionClient extends ClientBase {
             await this.runtime.messageManager.createMemory(memory);
             logger.log(`Marked tweet ${tweetId} as processed`);
         } catch (error) {
-            logger.error(`Failed to mark tweet ${tweetId} as processed:`, error);
+            logger.error('Failed to mark tweet as processed', {
+                severity: 'ERROR',
+                method: 'interactions.TwitterInteractionClient.markTweetAsProcessed',
+                agentId: this.runtime.agentId,
+                twitterUsername: this.runtime.getSetting("TWITTER_USERNAME"),
+                tweetId: tweetId,
+                processedTweetId: processedTweetId,
+                errorMessage: error.message,
+                errorStack: error.stack,
+                timestamp: new Date().toISOString(),
+                error: error
+            });
             throw error;
         }
     }
@@ -207,7 +250,17 @@ export class TwitterInteractionClient extends ClientBase {
             const count = await this.runtime.messageManager.countMemories(roomId, false);
             return count;
         } catch (error) {
-            logger.error("Error counting thread interactions:", error);
+            logger.error('Error counting thread interactions', {
+                severity: 'ERROR',
+                method: 'interactions.TwitterInteractionClient.countThreadInteractions',
+                agentId: this.runtime.agentId,
+                twitterUsername: this.runtime.getSetting("TWITTER_USERNAME"),
+                conversationId: conversationId,
+                errorMessage: error.message,
+                errorStack: error.stack,
+                timestamp: new Date().toISOString(),
+                error: error
+            });
             return 0;
         }
     }
@@ -290,7 +343,16 @@ export class TwitterInteractionClient extends ClientBase {
 
             logger.log("Finished checking Twitter interactions");
         } catch (error) {
-            logger.error("Error in handleTwitterInteractions:", error);
+            logger.error('Error in handleTwitterInteractions', {
+                severity: 'ERROR',
+                method: 'interactions.TwitterInteractionClient.handleTwitterInteractions',
+                agentId: this.runtime.agentId,
+                twitterUsername: this.runtime.getSetting("TWITTER_USERNAME"),
+                errorMessage: error.message,
+                errorStack: error.stack,
+                timestamp: new Date().toISOString(),
+                error: error
+            });
         }
     }
 
@@ -468,7 +530,18 @@ export class TwitterInteractionClient extends ClientBase {
                 await wait();
             }
         } catch (error) {
-            logger.error(`Error handling tweet ${tweet.id}:`, error);
+            logger.error('Error handling tweet', {
+                severity: 'ERROR',
+                method: 'interactions.TwitterInteractionClient.handleTweet',
+                agentId: this.runtime.agentId,
+                twitterUsername: this.runtime.getSetting("TWITTER_USERNAME"),
+                tweetId: tweet.id,
+                username: tweet.username,
+                errorMessage: error.message,
+                errorStack: error.stack,
+                timestamp: new Date().toISOString(),
+                error: error
+            });
             throw error;
         }
     }

@@ -101,7 +101,18 @@ export class TwitterSearchClient extends ClientBase {
             const memory = await this.runtime.messageManager.getMemoryById(processedTweetId);
             return !!memory;
         } catch (error) {
-            logger.error(`Error checking processed tweet ${tweetId}:`, error);
+            logger.error('Error checking processed tweet', {
+                severity: 'ERROR',
+                method: 'search.TwitterSearchClient.hasProcessedTweet',
+                agentId: this.runtime.agentId,
+                twitterUsername: this.runtime.getSetting("TWITTER_USERNAME"),
+                tweetId: tweetId,
+                processedTweetId: processedTweetId,
+                errorMessage: error.message,
+                errorStack: error.stack,
+                timestamp: new Date().toISOString(),
+                error: error
+            });
             return false;
         }
     }
@@ -126,7 +137,18 @@ export class TwitterSearchClient extends ClientBase {
             await this.runtime.messageManager.createMemory(memory);
             logger.log(`Marked tweet ${tweetId} as search-processed`);
         } catch (error) {
-            logger.error(`Failed to mark tweet ${tweetId} as search-processed:`, error);
+            logger.error('Failed to mark tweet as processed', {
+                severity: 'ERROR',
+                method: 'search.TwitterSearchClient.markTweetAsProcessed',
+                agentId: this.runtime.agentId,
+                twitterUsername: this.runtime.getSetting("TWITTER_USERNAME"),
+                tweetId: tweetId,
+                processedTweetId: processedTweetId,
+                errorMessage: error.message,
+                errorStack: error.stack,
+                timestamp: new Date().toISOString(),
+                error: error
+            });
             throw error;
         }
     }
@@ -417,10 +439,30 @@ export class TwitterSearchClient extends ClientBase {
                 fs.writeFileSync(debugFileName, responseInfo);
                 await wait();
             } catch (error) {
-                logger.error(`Error sending response post:`, error);
+                logger.error('Error sending response post', {
+                    severity: 'ERROR',
+                    method: 'search.TwitterSearchClient.engageWithSearchTerms',
+                    agentId: this.runtime.agentId,
+                    twitterUsername: this.runtime.getSetting("TWITTER_USERNAME"),
+                    tweetId: selectedTweet.id,
+                    responseText: response.text,
+                    errorMessage: error.message,
+                    errorStack: error.stack,
+                    timestamp: new Date().toISOString(),
+                    error: error
+                });
             }
         } catch (error) {
-            logger.error("Error engaging with search terms:", error);
+            logger.error('Error engaging with search terms', {
+                severity: 'ERROR',
+                method: 'search.TwitterSearchClient.engageWithSearchTerms',
+                agentId: this.runtime.agentId,
+                twitterUsername: this.runtime.getSetting("TWITTER_USERNAME"),
+                errorMessage: error.message,
+                errorStack: error.stack,
+                timestamp: new Date().toISOString(),
+                error: error
+            });
         }
     }
 }

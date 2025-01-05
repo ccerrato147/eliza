@@ -193,13 +193,32 @@ export class TwitterGenerationClient extends ClientBase {
                         createdAt: tweet.timestamp * 1000,
                     });
                 } catch (error) {
-                    logger.error("Error sending tweet:", error);
+                    logger.error("Error sending tweet:", {
+                        severity: 'ERROR',
+                        method: 'twitter.TwitterGenerationClient.sendTweet',
+                        agentId: this.runtime.agentId,
+                        username: this.runtime.getSetting("TWITTER_USERNAME"),
+                        content: content,
+                        errorMessage: error.message,
+                        errorStack: error.stack,
+                        timestamp: new Date().toISOString(),
+                        error: error
+                    });
                 }
             } else {
                 logger.log("Dry run, not sending tweet:", newTweetContent);
             }
         } catch (error) {
-            logger.error("Error generating new tweet:", error);
+            logger.error("Error generating new tweet:", {
+                severity: 'ERROR',
+                method: 'twitter.TwitterGenerationClient.generateNewTweet',
+                agentId: this.runtime.agentId,
+                username: this.runtime.getSetting("TWITTER_USERNAME"),
+                errorMessage: error.message,
+                errorStack: error.stack,
+                timestamp: new Date().toISOString(),
+                error: error
+            });
         }
     }
 }
