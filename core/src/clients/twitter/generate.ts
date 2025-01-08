@@ -15,6 +15,9 @@ import { ClientBase } from "./base.ts";
 import { generateText } from "../../core/generation.ts";
 import logger from "../../core/logger.ts";
 
+const MIN_TWEET_INTERVAL_MINUTES = 60;
+const MAX_TWEET_INTERVAL_MINUTES = 80;
+
 const newTweetPrompt = `{{timeline}}
 
 {{providers}}
@@ -38,12 +41,10 @@ export class TwitterGenerationClient extends ClientBase {
             this.generateNewTweet();
             setTimeout(
                 generateNewTweetLoop,
-                (Math.floor(Math.random() * (20 - 2 + 1)) + 2) * 60 * 1000
-            ); // Random interval between 4-8 hours
+                (Math.floor(Math.random() * (MAX_TWEET_INTERVAL_MINUTES - MIN_TWEET_INTERVAL_MINUTES + 1)) + MIN_TWEET_INTERVAL_MINUTES) * 60 * 1000
+            );
         };
-        // setTimeout(() => {
         generateNewTweetLoop();
-        // }, 5 * 60 * 1000); // Wait 5 minutes before starting the loop
     }
 
     constructor(runtime: IAgentRuntime) {
