@@ -7,8 +7,6 @@ export * from "./clients/index.ts";
 export * from "./adapters/index.ts";
 export * from "./providers/index.ts";
 
-import * as Client from "./clients/index.ts";
-import { Character } from "./core/types.ts";
 import { Arguments } from "./types/index.ts";
 import {
     createAgentRuntime,
@@ -70,7 +68,7 @@ async function main() {
         const token = getTokenForProvider(character.modelProvider, character);
         const db = initializeDatabase();
         const runtime = await createAgentRuntime(character, db, token);
-        const clients = await initializeClients(character, runtime);
+        await initializeClients(character, runtime);
 
         // Keep the process running
         process.on('SIGINT', async () => {
