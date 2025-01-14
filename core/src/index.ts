@@ -18,14 +18,15 @@ import {
 } from "./cli/index.ts";
 import { PrettyConsole } from "./cli/colors.ts";
 import logger from "./core/logger.ts";
+import { Character } from "./core/types.ts";
 
 // Configure logger
-logger.configure({
-    type: 'google-cloud',
-    projectId: process.env.GOOGLE_PROJECT_ID,
-    logName: process.env.GOOGLE_LOGS_NAME,
-    keyFilename: process.env.GOOGLE_LOGGER_SERVICE_CREDENTIALS
-});
+// logger.configure({
+//     type: 'google-cloud',
+//     projectId: process.env.GOOGLE_PROJECT_ID,
+//     logName: process.env.GOOGLE_LOGS_NAME,
+//     keyFilename: process.env.GOOGLE_LOGGER_SERVICE_CREDENTIALS
+// });
 
 // Initialize console
 export const prettyConsole = new PrettyConsole();
@@ -34,50 +35,63 @@ prettyConsole.closeByNewLine = true;
 prettyConsole.useIcons = true;
 
 /**
- * Main function to start the agent
+ * Initialize and start an agent for a given character
+ */
+async function startAgent(character: Character) {
+    logger.log(`Starting agent for character ${character.name}`, 'green');
+
+    try {
+        const token = getTokenForProvider(character.modelProvider, character);
+        const db = initializeDatabase();
+        const runtime = await createAgentRuntime(character, db, token);
+        await initializeClients(character, runtime);
+        logger.log(`Agent ${character.name} is running`, 'green');
+    } catch (error) {
+        logger.error(`Failed to start agent for character ${character.name}:`, error);
+        throw error;
+    }
+}
+
+/**
+ * Main function to start the agent(s)
  */
 async function main() {
-    // Change console.error to logger.log
     logger.log('Application starting...', 'info');
     
     try {
         const argv: Arguments = parseArguments();
         logger.log('Arguments parsed successfully: ' + JSON.stringify(argv), 'info');
         
-        if (!argv.character) {
-            logger.error('No character provided. Please use --character parameter.');
+        // Support both --character and --characters parameters
+        const characterIds = argv.characters || argv.character;
+        if (!characterIds) {
+            logger.error('No characters provided. Please use --character or --characters parameter.');
             process.exit(1);
         }
 
-        // Update character loading logs
-        logger.log('Attempting to load character...', 'info');
-        const characters = await loadCharacters(argv.character).catch(e => {
+        logger.log('Attempting to load characters...', 'info');
+        const characters = await loadCharacters(characterIds).catch(e => {
             logger.error('Error loading characters: ' + e);
             throw e;
         });
         
         if (!characters || characters.length === 0) {
-            logger.error(`No character found for ID: ${argv.character}`);
+            logger.error(`No characters found for IDs: ${characterIds}`);
             process.exit(1);
         }
 
-        const character = characters[0]; // We only need the first character
-        logger.log(`Starting agent for character ${character.name}`, 'green');
-
-        // Initialize the agent
-        const token = getTokenForProvider(character.modelProvider, character);
-        const db = initializeDatabase();
-        const runtime = await createAgentRuntime(character, db, token);
-        await initializeClients(character, runtime);
+        // Start all agents in parallel
+        logger.log(`Starting ${characters.length} agent(s)...`, 'info');
+        await Promise.all(characters.map(startAgent));
 
         // Keep the process running
         process.on('SIGINT', async () => {
             logger.log('Received SIGINT. Gracefully shutting down...', 'yellow');
-            // Add any cleanup needed for your agent here
+            // Add any cleanup needed for your agents here
             process.exit(0);
         });
 
-        logger.log(`Agent ${character.name} is running`, 'green');
+        logger.log(`All agents are running`, 'green');
     } catch (error) {
         // Create a structured error log entry with metadata
         const errorData = {

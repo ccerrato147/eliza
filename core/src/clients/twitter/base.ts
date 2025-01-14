@@ -116,7 +116,6 @@ class RequestQueue {
 }
 
 export class ClientBase extends EventEmitter {
-    static _twitterClient: Scraper;
     twitterClient: Scraper;
     runtime: IAgentRuntime;
     directions: string;
@@ -138,6 +137,7 @@ export class ClientBase extends EventEmitter {
         const cacheDir = path.join(
             __dirname,
             "../../../tweetcache",
+            this.runtime.agentId,
             tweet.conversationId,
             `${tweet.id}.json`
         );
@@ -169,8 +169,16 @@ export class ClientBase extends EventEmitter {
     }
 
     async getTweet(tweetId: string): Promise<Tweet> {
-        const cachedTweet = await this.getCachedTweet(tweetId);
-        if (cachedTweet) {
+        const cacheDir = path.join(
+            __dirname,
+            "../../../tweetcache",
+            this.runtime.agentId,
+            `${tweetId}.json`
+        );
+
+        // Check cache first
+        if (fs.existsSync(cacheDir)) {
+            const cachedTweet = JSON.parse(await fs.promises.readFile(cacheDir, 'utf-8'));
             return cachedTweet;
         }
 
@@ -192,12 +200,8 @@ export class ClientBase extends EventEmitter {
     constructor({ runtime }: { runtime: IAgentRuntime }) {
         super();
         this.runtime = runtime;
-        if (ClientBase._twitterClient) {
-            this.twitterClient = ClientBase._twitterClient;
-        } else {
-            this.twitterClient = new Scraper();
-            ClientBase._twitterClient = this.twitterClient;
-        }
+        this.twitterClient = new Scraper();
+        
         this.dryRun =
             this.runtime.getSetting("TWITTER_DRY_RUN")?.toLowerCase() ===
             "true";
@@ -208,7 +212,7 @@ export class ClientBase extends EventEmitter {
         
         this.directions = allStyles.length || postStyles.length
             ? `- ${allStyles.join("\n- ")}\n- ${postStyles.join("\n- ")}`
-            : ""; // Provide empty string if no styles exist
+            : "";
 
         try {
             if (fs.existsSync(this.tweetCacheFilePath)) {
@@ -645,7 +649,7 @@ export class ClientBase extends EventEmitter {
             content: {
                 type: 'twitter-cookies',
                 cookies: cookies,
-                text: 'Twitter authentication cookies storage',
+                text: `Twitter authentication cookies storage for ${this.runtime.character.name}`,
             },
             agentId: this.runtime.agentId,
             roomId: stringToUuid(`twitter-system-${this.runtime.agentId}`),
