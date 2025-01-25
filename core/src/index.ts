@@ -215,8 +215,8 @@ async function main() {
         const argv: Arguments = parseArguments();
         logger.log('Arguments parsed successfully: ' + JSON.stringify(argv), 'info');
         
-        // Initialize API server on port 3000 by default
-        const apiPort = 4419;
+        // Initialize API server using port from arguments
+        const apiPort = argv.port || 4419;
         initializeApiServer(apiPort);
 
         // Keep the process running and handle graceful shutdown

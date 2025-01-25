@@ -62,6 +62,11 @@ export function parseArguments(): Arguments {
                 description: "Enable Telegram client",
                 default: false,
             })
+            .option("port", {
+                type: "number",
+                description: "Port number for the API server",
+                default: 4419,
+            })
             .parseSync() as Arguments;
     } catch (error) {
         logger.error("Error parsing arguments:", error);
