@@ -40,9 +40,8 @@ prettyConsole.clear();
 prettyConsole.closeByNewLine = true;
 prettyConsole.useIcons = true;
 
-// Map to keep track of running agents and their health status
+// Map to keep track of running agents
 const runningAgents = new Map<string, AgentRuntime>();
-const agentErrors = new Map<string, {lastError: Error; timestamp: number}>();
 
 /**
  * Initialize and start an agent for a given character
@@ -56,16 +55,9 @@ async function startAgent(character: Character) {
         const runtime = await createAgentRuntime(character, db, token);
         await initializeClients(character, runtime);
         runningAgents.set(character.id || character.name, runtime);
-        // Clear any previous errors when agent starts successfully
-        agentErrors.delete(character.id || character.name);
         logger.log(`Agent ${character.name} is running`, 'green');
         return runtime;
     } catch (error) {
-        const agentId = character.id || character.name;
-        agentErrors.set(agentId, {
-            lastError: error,
-            timestamp: Date.now()
-        });
         logger.error(`Failed to start agent for character ${character.name}:`, error);
         throw error;
     }
@@ -85,8 +77,6 @@ async function stopAgent(agentId: string) {
         await runtime.shutdown();
         // Remove from running agents map
         runningAgents.delete(agentId);
-        // Clear any error state
-        agentErrors.delete(agentId);
         logger.log(`Agent ${agentId} stopped`, 'yellow');
     } catch (error) {
         logger.error(`Error while stopping agent ${agentId}:`, error);
@@ -112,25 +102,11 @@ function initializeApiServer(port: number = 4419) {
 
     // Get list of running agents with their health status
     const listAgents: RequestHandler = (_req, res) => {
-        // Combine running agents and agents with errors
-        const allAgentIds = new Set([
-            ...runningAgents.keys(),
-            ...agentErrors.keys()
-        ]);
-
-        const agents = Array.from(allAgentIds).map(id => {
-            const runtime = runningAgents.get(id);
-            // Only check for errors if the agent is not running
-            const error = runtime ? null : agentErrors.get(id);
-            
+        const agents = Array.from(runningAgents.entries()).map(([id, runtime]) => {
             return {
                 id,
-                name: runtime?.character.name || 'Unknown', // Fallback name if agent isn't running
-                status: runtime ? 'running' : (error ? 'error' : 'stopped'),
-                lastError: error ? {
-                    message: error.lastError.message,
-                    timestamp: error.timestamp
-                } : null
+                name: runtime.character.name,
+                status: 'running'
             };
         });
         res.json(agents);
