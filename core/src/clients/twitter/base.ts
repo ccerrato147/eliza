@@ -113,6 +113,10 @@ class RequestQueue {
         const delay = Math.floor(Math.random() * 2000) + 1500;
         await new Promise((resolve) => setTimeout(resolve, delay));
     }
+
+    async shutdown(): Promise<void> {
+        return this.processQueue();
+    }
 }
 
 export class ClientBase extends EventEmitter {
@@ -704,5 +708,49 @@ export class ClientBase extends EventEmitter {
                 twitterClient: this.twitterClient,
             });
         }
+    }
+
+    /**
+     * Gracefully shuts down the Twitter client and cleans up resources
+     */
+    async shutdown(): Promise<void> {
+        logger.log("Starting Twitter client shutdown...");
+        
+        // Clear event listeners
+        this.removeAllListeners();
+        
+        // Wait for any pending requests in the queue to complete
+        if (this.requestQueue) {
+            // Add a timeout to prevent infinite waiting
+            const timeout = new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Queue processing timeout')), 30000)
+            );
+            
+            try {
+                await Promise.race([
+                    this.requestQueue.shutdown(),
+                    timeout
+                ]);
+            } catch (error) {
+                logger.warn("Request queue shutdown timed out:", {
+                    method: 'base.ClientBase.shutdown',
+                    agentId: this.runtime?.agentId,
+                    error: error
+                });
+            }
+            
+            // Clear the queue
+            this.requestQueue = new RequestQueue();
+        }
+        
+        // Clear tweet cache
+        this.tweetCache.clear();
+        
+        // Nullify references to allow garbage collection
+        this.twitterClient = null;
+        this.runtime = null;
+        this.imageDescriptionService = null;
+        
+        logger.log("Twitter client shutdown complete");
     }
 }

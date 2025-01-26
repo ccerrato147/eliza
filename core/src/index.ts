@@ -81,8 +81,9 @@ async function stopAgent(agentId: string) {
     }
 
     try {
-        // Clean up any resources
-        // Note: Since there's no close() method in IDatabaseAdapter, we'll just remove the agent
+        // Clean up resources using the runtime's shutdown method
+        await runtime.shutdown();
+        // Remove from running agents map
         runningAgents.delete(agentId);
         // Clear any error state
         agentErrors.delete(agentId);

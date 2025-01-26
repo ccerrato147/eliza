@@ -56,6 +56,8 @@ import { UUID, type Actor } from "./types.ts";
 import { stringToUuid } from "./uuid.ts";
 import { ImageGenModel } from "./imageGenModels.ts";
 import { prettyConsole } from "../index.ts";
+import { ClientBase } from "../clients/twitter/base.ts";
+import logger from "./logger.ts";
 
 /**
  * Represents the runtime environment for an agent, handling message processing,
@@ -1224,5 +1226,66 @@ Text: ${attachment.text}
             recentMessagesData,
             attachments: formattedAttachments,
         } as State;
+    }
+
+    /**
+     * Shuts down the runtime and cleans up all resources.
+     * This includes:
+     * - Closing database connections
+     * - Cleaning up service instances
+     * - Clearing memory managers
+     * - Clearing other references
+     */
+    async shutdown(): Promise<void> {
+        // Close database connection based on adapter type
+        if (this.databaseAdapter) {
+            // Handle Postgres adapter
+            if ('pool' in this.databaseAdapter) {
+                await (this.databaseAdapter as any).pool.end();
+            }
+            // Handle SQLite/SQLJs adapter
+            else if ('db' in this.databaseAdapter && typeof this.databaseAdapter.db?.close === 'function') {
+                await this.databaseAdapter.db.close();
+            }
+        }
+
+        // Clean up services that we know have close methods
+        if (this.llamaService) {
+            this.llamaService = null;
+        }
+
+        // Clean up any Twitter clients
+        const twitterClients = Object.values(this).filter(value => value instanceof ClientBase);
+        for (const client of twitterClients) {
+            try {
+                await (client as ClientBase).shutdown();
+            } catch (error) {
+                logger.error("Error shutting down Twitter client:", error);
+            }
+        }
+
+        // Clear memory managers
+        this.messageManager = null;
+        this.descriptionManager = null;
+        this.factManager = null;
+        this.loreManager = null;
+        this.documentsManager = null;
+        this.fragmentsManager = null;
+
+        // Clear service references without calling close
+        this.transcriptionService = null;
+        this.imageDescriptionService = null;
+        this.browserService = null;
+        this.videoService = null;
+        this.pdfService = null;
+        this.speechService = null;
+        this.databaseAdapter = null;
+
+        // Clear other references
+        this.actions = [];
+        this.evaluators = [];
+        this.providers = [];
+        this.token = null;
+        this.character = null;
     }
 }
