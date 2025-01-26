@@ -128,6 +128,7 @@ export class ClientBase extends EventEmitter {
     imageDescriptionService: ImageDescriptionService;
     temperature: number = 0.5;
     dryRun: boolean = false;
+    protected isShutdown: boolean = false;
 
     private tweetCache: Map<string, Tweet> = new Map();
     requestQueue: RequestQueue = new RequestQueue();
@@ -714,6 +715,11 @@ export class ClientBase extends EventEmitter {
      * Gracefully shuts down the Twitter client and cleans up resources
      */
     async shutdown(): Promise<void> {
+        if (this.isShutdown) {
+            return;
+        }
+        
+        this.isShutdown = true;
         logger.log("Starting Twitter client shutdown...");
         
         // Clear event listeners
@@ -745,6 +751,9 @@ export class ClientBase extends EventEmitter {
         
         // Clear tweet cache
         this.tweetCache.clear();
+        
+        // Emit shutdown event before nullifying runtime
+        this.emit('shutdown');
         
         // Nullify references to allow garbage collection
         this.twitterClient = null;
