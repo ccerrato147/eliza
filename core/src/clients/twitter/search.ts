@@ -38,6 +38,13 @@ import { buildConversationThread, sendTweetChunks, wait } from "./utils.ts";
 import logger from "../../core/logger.ts";
 import { embeddingZeroVector } from "../../core/memory.ts";
 
+// Minimum interval between searches in minutes
+const MIN_SEARCH_INTERVAL_MINUTES = 1; // 60
+// Maximum interval between searches in minutes
+const MAX_SEARCH_INTERVAL_MINUTES = 2; // 80
+// Number of milliseconds in a minute
+const MILLISECONDS_PER_MINUTE = 60 * 1000;
+
 const messageHandlerTemplate =
     `{{relevantFacts}}
 {{recentFacts}}
@@ -70,32 +77,148 @@ Your response should not contain any questions. Brief, concise statements only. 
 
 export class TwitterSearchClient extends ClientBase {
     private searchInterval: NodeJS.Timeout | null = null;
+    private static instances = new Set<TwitterSearchClient>();
+    private isEngagementInProgress: boolean = false;
+    private cachedRuntime: IAgentRuntime | null = null;
 
     constructor(runtime: IAgentRuntime) {
         super({
             runtime,
         });
+        
+        // Cache runtime reference
+        this.cachedRuntime = runtime;
+        
+        // Track this instance
+        if (TwitterSearchClient.instances.size > 0) {
+            logger.warn('Multiple TwitterSearchClient instances detected', {
+                existingInstances: TwitterSearchClient.instances.size,
+                agentId: runtime?.agentId
+            });
+        }
+        TwitterSearchClient.instances.add(this);
+
+        // Listen for shutdown event
+        this.on('shutdown', async () => {
+            await this.shutdown();
+        });
+    }
+
+    private validateRuntime(): boolean {
+        // Check explicit shutdown flag
+        if (this.isShutdown) {
+            logger.warn("Client is shutdown, skipping operation");
+            return false;
+        }
+
+        const runtime = this.cachedRuntime || this.runtime;
+        
+        // All these conditions can happen during shutdown, so log appropriately
+        if (!runtime) {
+            logger.warn("Runtime is not available (shutdown in progress)");
+            return false;
+        }
+
+        // Recheck runtime before accessing agentId
+        if (!runtime?.agentId) {
+            logger.warn("Runtime is missing properties (shutdown in progress)");
+            return false;
+        }
+
+        // Recheck runtime before accessing character
+        if (!runtime?.character) {
+            logger.warn("Runtime character is not available (shutdown in progress)");
+            return false;
+        }
+
+        // Test if getSetting works
+        try {
+            // Recheck runtime before calling getSetting
+            if (!runtime?.getSetting) {
+                logger.warn("Runtime getSetting method is not available (shutdown in progress)");
+                return false;
+            }
+            const twitterUsername = runtime.getSetting("TWITTER_USERNAME");
+            if (!twitterUsername) {
+                logger.error("Twitter username not found in settings");
+                return false;
+            }
+        } catch (error) {
+            // This could be due to shutdown or a real error, so check isShutdown
+            if (this.isShutdown) {
+                logger.warn("Error accessing runtime settings during shutdown");
+            } else {
+                logger.error("Error accessing runtime settings", {
+                    error: error instanceof Error ? error.message : String(error)
+                });
+            }
+            return false;
+        }
+
+        return true;
     }
 
     async onReady() {
         // Start the search loop immediately
-        this.engageWithSearchTerms();
+        if (this.validateRuntime()) {
+            this.engageWithSearchTerms();
+        }
         
         // Set up recurring interval
         this.searchInterval = setInterval(() => {
-            this.engageWithSearchTerms();
-        }, (Math.floor(Math.random() * (120 - 60 + 1)) + 60) * 60 * 1000); // 60 - 120 minutes
+            if (!this.validateRuntime()) {
+                if (this.searchInterval) {
+                    clearInterval(this.searchInterval);
+                    this.searchInterval = null;
+                }
+                return;
+            }
+            if (!this.isEngagementInProgress) {
+                this.engageWithSearchTerms();
+            }
+        }, (Math.floor(Math.random() * (MAX_SEARCH_INTERVAL_MINUTES - MIN_SEARCH_INTERVAL_MINUTES + 1)) + MIN_SEARCH_INTERVAL_MINUTES) * MILLISECONDS_PER_MINUTE);
     }
 
     // Clean up method to clear interval if needed
     async onStop() {
+        await this.shutdown();
+    }
+
+    public shutdown(): Promise<void> {
+        // Set shutdown flag first to prevent new operations
+        this.isShutdown = true;
+        this.cachedRuntime = null;
+
+        // Clear any running intervals
         if (this.searchInterval) {
             clearInterval(this.searchInterval);
             this.searchInterval = null;
         }
+
+        // Remove this instance from tracking
+        TwitterSearchClient.instances.delete(this);
+
+        // Return a promise that resolves after cleanup
+        return new Promise<void>(resolve => {
+            const checkEngagement = () => {
+                if (this.isEngagementInProgress) {
+                    setTimeout(checkEngagement, 100);
+                    return;
+                }
+                this.runtime = null;
+                resolve();
+            };
+            
+            checkEngagement();
+        });
     }
 
     private async hasProcessedTweet(tweetId: string): Promise<boolean> {
+        if (!this.runtime?.messageManager) {
+            logger.warn('Runtime not available, skipping processed tweet check');
+            return false;
+        }
+        
         const processedTweetId = stringToUuid(`twitter-search-${tweetId}-${this.runtime.agentId}`);
         try {
             const memory = await this.runtime.messageManager.getMemoryById(processedTweetId);
@@ -104,8 +227,8 @@ export class TwitterSearchClient extends ClientBase {
             logger.error('Error checking processed tweet', {
                 severity: 'ERROR',
                 method: 'search.TwitterSearchClient.hasProcessedTweet',
-                agentId: this.runtime.agentId,
-                twitterUsername: this.runtime.getSetting("TWITTER_USERNAME"),
+                agentId: this.runtime?.agentId,
+                twitterUsername: this.runtime?.getSetting("TWITTER_USERNAME"),
                 tweetId: tweetId,
                 processedTweetId: processedTweetId,
                 errorMessage: error.message,
@@ -118,30 +241,54 @@ export class TwitterSearchClient extends ClientBase {
     }
 
     private async markTweetAsProcessed(tweetId: string): Promise<void> {
-        const processedTweetId = stringToUuid(`twitter-search-${tweetId}-${this.runtime.agentId}`);
+        // Early return if shutdown or no runtime
+        if (this.isShutdown || !this.runtime?.agentId) {
+            logger.warn('Skipping marking tweet as processed - client is shutdown or runtime is not available');
+            return;
+        }
+
+        // Cache runtime reference to ensure consistency
+        const runtime = this.runtime;
+        if (!runtime?.agentId) {
+            logger.warn('Runtime not available, skipping marking tweet as processed');
+            return;
+        }
+
+        const processedTweetId = stringToUuid(`twitter-search-${tweetId}-${runtime.agentId}`);
         const memory: Memory = {
             id: processedTweetId,
-            userId: this.runtime.agentId,
+            userId: runtime.agentId,
             content: {
                 type: 'twitter-search-processed',
                 tweetId: tweetId,
-                text: `Search-processed tweet ${tweetId} for agent ${this.runtime.agentId}`
+                text: `Search-processed tweet ${tweetId} for agent ${runtime.agentId}`
             },
-            agentId: this.runtime.agentId,
-            roomId: stringToUuid(`twitter-search-${this.runtime.agentId}`),
+            agentId: runtime.agentId,
+            roomId: stringToUuid(`twitter-search-${runtime.agentId}`),
             embedding: embeddingZeroVector,
             createdAt: Date.now()
         };
 
         try {
-            await this.runtime.messageManager.createMemory(memory);
+            // Check runtime again before proceeding with memory creation
+            if (this.isShutdown || !runtime?.agentId || !runtime.messageManager) {
+                logger.warn('Runtime no longer available before memory creation');
+                return;
+            }
+
+            await runtime.messageManager.createMemory(memory);
             logger.log(`Marked tweet ${tweetId} as search-processed`);
         } catch (error) {
+            // Check if error is due to shutdown
+            if (this.isShutdown) {
+                logger.warn('Error occurred after shutdown, ignoring');
+                return;
+            }
             logger.error('Failed to mark tweet as processed', {
                 severity: 'ERROR',
                 method: 'search.TwitterSearchClient.markTweetAsProcessed',
-                agentId: this.runtime.agentId,
-                twitterUsername: this.runtime.getSetting("TWITTER_USERNAME"),
+                agentId: runtime.agentId,
+                twitterUsername: runtime.getSetting("TWITTER_USERNAME"),
                 tweetId: tweetId,
                 processedTweetId: processedTweetId,
                 errorMessage: error.message,
@@ -154,10 +301,26 @@ export class TwitterSearchClient extends ClientBase {
     }
 
     private async engageWithSearchTerms() {
-        logger.log("Starting search engagement cycle");
+        // Early return if runtime validation fails
+        if (!this.validateRuntime()) {
+            return;
+        }
+
+        this.isEngagementInProgress = true;
         try {
-            const searchTerm = [...this.runtime.character.topics][
-                Math.floor(Math.random() * this.runtime.character.topics.length)
+            const runtime = this.cachedRuntime || this.runtime;
+            if (!runtime?.agentId || !runtime.character?.topics) {
+                return;
+            }
+
+            // Verify essential runtime components are available
+            if (!runtime.messageManager || !runtime.getSetting("TWITTER_USERNAME")) {
+                return;
+            }
+
+            logger.log("Starting search engagement cycle");
+            const searchTerm = [...runtime.character.topics][
+                Math.floor(Math.random() * runtime.character.topics.length)
             ];
 
             if (!searchTerm) {
@@ -165,13 +328,23 @@ export class TwitterSearchClient extends ClientBase {
                 return;
             }
 
+            // Check runtime before proceeding with search
+            if (!this.validateRuntime()) {
+                return;
+            }
+
             logger.log(`Searching for term: "${searchTerm}"`);
             const recentTweets = await this.fetchSearchTweets(
                 searchTerm,
                 20,
-                SearchMode.Latest  // Fixed: using Latest instead of Recent
+                SearchMode.Latest
             );
             logger.log(`Found ${recentTweets.tweets.length} tweets for search term`);
+
+            // Check runtime before processing tweets
+            if (!this.validateRuntime()) {
+                return;
+            }
 
             // Filter out already processed tweets
             const unprocessedTweets = await Promise.all(
@@ -200,6 +373,12 @@ export class TwitterSearchClient extends ClientBase {
             logger.log(`Found ${validTweets.length} valid unprocessed tweets`);
 
             const homeTimeline = await this.fetchHomeTimeline(50);
+            
+            if (!this.validateRuntime()) {
+                logger.warn('Stopping search engagement - client was shutdown');
+                return;
+            }
+
             fs.writeFileSync(
                 "tweetcache/home_timeline.json",
                 JSON.stringify(homeTimeline, null, 2)
@@ -257,6 +436,11 @@ export class TwitterSearchClient extends ClientBase {
                 modelClass: ModelClass.SMALL,
             });
 
+            if (!this.validateRuntime()) {
+                logger.warn('Stopping search engagement - client was shutdown');
+                return;
+            }
+
             const responseLogName = `${this.runtime.character.name}_search_${datestr}_result`;
             log_to_file(responseLogName, mostInterestingTweetResponse);
 
@@ -276,7 +460,7 @@ export class TwitterSearchClient extends ClientBase {
 
             if (
                 selectedTweet.username ===
-                this.runtime.getSetting("TWITTER_USERNAME")
+                runtime.getSetting("TWITTER_USERNAME")
             ) {
                 logger.warn("Skipping tweet from bot itself");
                 return;
@@ -286,11 +470,11 @@ export class TwitterSearchClient extends ClientBase {
             await this.markTweetAsProcessed(selectedTweet.id);
 
             const conversationId = selectedTweet.conversationId;
-            const roomId = stringToUuid(conversationId + "-" + this.runtime.agentId);
+            const roomId = stringToUuid(conversationId + "-" + runtime.agentId);
 
             const userIdUUID = stringToUuid(selectedTweet.userId as string);
 
-            await this.runtime.ensureConnection(
+            await runtime.ensureConnection(
                 userIdUUID,
                 roomId,
                 selectedTweet.username,
@@ -302,13 +486,13 @@ export class TwitterSearchClient extends ClientBase {
             await buildConversationThread(selectedTweet, this);
 
             const message = {
-                id: stringToUuid(selectedTweet.id + "-" + this.runtime.agentId),
-                agentId: this.runtime.agentId,
+                id: stringToUuid(selectedTweet.id + "-" + runtime.agentId),
+                agentId: runtime.agentId,
                 content: {
                     text: selectedTweet.text,
                     url: selectedTweet.permanentUrl,
                     inReplyTo: selectedTweet.inReplyToStatusId
-                        ? stringToUuid(selectedTweet.inReplyToStatusId + "-" + this.runtime.agentId)
+                        ? stringToUuid(selectedTweet.inReplyToStatusId + "-" + runtime.agentId)
                         : undefined,
                 },
                 userId: userIdUUID,
@@ -326,7 +510,7 @@ export class TwitterSearchClient extends ClientBase {
                 .filter(
                     (reply) =>
                         reply.username !==
-                        this.runtime.getSetting("TWITTER_USERNAME")
+                        runtime.getSetting("TWITTER_USERNAME")
                 )
                 .map((reply) => `@${reply.username}: ${reply.text}`)
                 .join("\n");
@@ -343,15 +527,15 @@ export class TwitterSearchClient extends ClientBase {
             const imageDescriptions = [];
             for (const photo of selectedTweet.photos) {
                 const description =
-                    await this.runtime.imageDescriptionService.describeImage(
+                    await runtime.imageDescriptionService.describeImage(
                         photo.url
                     );
                 imageDescriptions.push(description);
             }
 
-            let state = await this.runtime.composeState(message, {
+            let state = await runtime.composeState(message, {
                 twitterClient: this.twitterClient,
-                twitterUserName: this.runtime.getSetting("TWITTER_USERNAME"),
+                twitterUserName: runtime.getSetting("TWITTER_USERNAME"),
                 timeline: formattedHomeTimeline,
                 tweetContext: `${tweetBackground}
   
@@ -372,12 +556,12 @@ export class TwitterSearchClient extends ClientBase {
 
             // log context to file
             log_to_file(
-                `${this.runtime.getSetting("TWITTER_USERNAME")}_${datestr}_search_context`,
+                `${runtime.getSetting("TWITTER_USERNAME")}_${datestr}_search_context`,
                 context
             );
 
             const responseContent = await generateMessageResponse({
-                runtime: this.runtime,
+                runtime: runtime,
                 context,
                 modelClass: ModelClass.SMALL,
             });
@@ -385,7 +569,7 @@ export class TwitterSearchClient extends ClientBase {
             responseContent.inReplyTo = message.id;
 
             log_to_file(
-                `${this.runtime.getSetting("TWITTER_USERNAME")}_${datestr}_search_response`,
+                `${runtime.getSetting("TWITTER_USERNAME")}_${datestr}_search_response`,
                 JSON.stringify(responseContent)
             );
 
@@ -401,11 +585,16 @@ export class TwitterSearchClient extends ClientBase {
             );
             try {
                 const callback: HandlerCallback = async (response: Content) => {
+                    if (!this.validateRuntime()) {
+                        logger.warn('Skipping tweet send - client is shutdown');
+                        return [];
+                    }
+
                     const memories = await sendTweetChunks(
                         this,
                         response,
                         message.roomId,
-                        this.runtime.getSetting("TWITTER_USERNAME"),
+                        runtime.getSetting("TWITTER_USERNAME"),
                         tweetId
                     );
                     return memories;
@@ -413,20 +602,20 @@ export class TwitterSearchClient extends ClientBase {
 
                 const responseMessages = await callback(responseContent);
 
-                state = await this.runtime.updateRecentMessageState(state);
+                state = await runtime.updateRecentMessageState(state);
 
                 for (const responseMessage of responseMessages) {
-                    await this.runtime.messageManager.createMemory(
+                    await runtime.messageManager.createMemory(
                         responseMessage,
                         false
                     );
                 }
 
-                state = await this.runtime.updateRecentMessageState(state);
+                state = await runtime.updateRecentMessageState(state);
 
-                await this.runtime.evaluate(message, state);
+                await runtime.evaluate(message, state);
 
-                await this.runtime.processActions(
+                await runtime.processActions(
                     message,
                     responseMessages,
                     state,
@@ -442,8 +631,8 @@ export class TwitterSearchClient extends ClientBase {
                 logger.error('Error sending response post', {
                     severity: 'ERROR',
                     method: 'search.TwitterSearchClient.engageWithSearchTerms',
-                    agentId: this.runtime.agentId,
-                    twitterUsername: this.runtime.getSetting("TWITTER_USERNAME"),
+                    agentId: this.cachedRuntime?.agentId || this.runtime?.agentId,
+                    twitterUsername: this.cachedRuntime?.getSetting("TWITTER_USERNAME") || this.runtime?.getSetting("TWITTER_USERNAME"),
                     tweetId: selectedTweet.id,
                     responseText: response.text,
                     errorMessage: error.message,
@@ -453,16 +642,23 @@ export class TwitterSearchClient extends ClientBase {
                 });
             }
         } catch (error) {
+            // Check if error is due to shutdown
+            if (this.isShutdown) {
+                logger.warn("Error occurred after shutdown, ignoring");
+                return;
+            }
             logger.error('Error engaging with search terms', {
                 severity: 'ERROR',
                 method: 'search.TwitterSearchClient.engageWithSearchTerms',
-                agentId: this.runtime.agentId,
-                twitterUsername: this.runtime.getSetting("TWITTER_USERNAME"),
+                agentId: this.cachedRuntime?.agentId || this.runtime?.agentId,
+                twitterUsername: this.cachedRuntime?.getSetting("TWITTER_USERNAME") || this.runtime?.getSetting("TWITTER_USERNAME"),
                 errorMessage: error.message,
                 errorStack: error.stack,
                 timestamp: new Date().toISOString(),
                 error: error
             });
+        } finally {
+            this.isEngagementInProgress = false;
         }
     }
 }

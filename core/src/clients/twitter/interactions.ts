@@ -34,7 +34,9 @@ import {
 } from "../../core/generation.ts";
 import { embeddingZeroVector } from "../../core/memory.ts";
 
-const MAX_INTERACTIONS_PER_THREAD = 7;
+const MAX_INTERACTIONS_PER_THREAD = 12;
+const MIN_CHECK_INTERVAL_MINUTES = 1;
+const MAX_CHECK_INTERVAL_MINUTES = 2.5;
 
 export const messageHandlerTemplate =
     `{{relevantFacts}}
@@ -141,7 +143,7 @@ export class TwitterInteractionClient extends ClientBase {
             if (!this.isShutdown && this.runtime?.agentId) {
                 this.interactionLoopTimeout = setTimeout(
                     handleTwitterInteractionsLoop,
-                    (Math.floor(Math.random() * (2.5 - 1 + 1)) + 1) * 60 * 1000
+                    (Math.floor(Math.random() * (MAX_CHECK_INTERVAL_MINUTES - MIN_CHECK_INTERVAL_MINUTES + 1)) + MIN_CHECK_INTERVAL_MINUTES) * 60 * 1000
                 );
             }
         };

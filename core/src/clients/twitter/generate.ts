@@ -15,8 +15,8 @@ import { ClientBase } from "./base.ts";
 import { generateText } from "../../core/generation.ts";
 import logger from "../../core/logger.ts";
 
-const MIN_TWEET_INTERVAL_MINUTES = 60;
-const MAX_TWEET_INTERVAL_MINUTES = 80;
+const MIN_TWEET_INTERVAL_MINUTES = 1; // 60
+const MAX_TWEET_INTERVAL_MINUTES = 2; // 80
 
 const newTweetPrompt = `{{timeline}}
 
@@ -38,11 +38,102 @@ Your response should not contain any questions. Brief, concise statements only. 
 export class TwitterGenerationClient extends ClientBase {
     private generationLoopTimeout: NodeJS.Timeout | null = null;
     private static instances = new Set<TwitterGenerationClient>();
+    private cachedRuntime: IAgentRuntime | null = null;
+    private isGeneratingTweet = false;
+
+    constructor(runtime: IAgentRuntime) {
+        // Initialize the client and pass an optional callback to be called when the client is ready
+        super({
+            runtime,
+        });
+
+        // Cache runtime reference
+        this.cachedRuntime = runtime;
+
+        // Track this instance
+        if (TwitterGenerationClient.instances.size > 0) {
+            logger.warn('Multiple TwitterGenerationClient instances detected', {
+                existingInstances: TwitterGenerationClient.instances.size,
+                agentId: runtime?.agentId
+            });
+        }
+        TwitterGenerationClient.instances.add(this);
+
+        // Listen for shutdown event
+        this.on('shutdown', async () => {
+            this.isShutdown = true;
+            this.cachedRuntime = null;
+            if (this.generationLoopTimeout) {
+                clearTimeout(this.generationLoopTimeout);
+                this.generationLoopTimeout = null;
+            }
+            // Wait for any pending tweet generation to complete
+            while (this.isGeneratingTweet) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+            // Clear runtime reference on shutdown
+            this.runtime = null;
+        });
+    }
+
+    private validateRuntime(): boolean {
+        // Check explicit shutdown flag
+        if (this.isShutdown) {
+            logger.warn("Client is shutdown, skipping operation");
+            return false;
+        }
+
+        const runtime = this.cachedRuntime || this.runtime;
+        
+        // All these conditions can happen during shutdown, so log appropriately
+        if (!runtime) {
+            logger.warn("Runtime is not available (shutdown in progress)");
+            return false;
+        }
+
+        // Recheck runtime before accessing agentId
+        if (!runtime?.agentId) {
+            logger.warn("Runtime is missing properties (shutdown in progress)");
+            return false;
+        }
+
+        // Recheck runtime before accessing character
+        if (!runtime?.character) {
+            logger.warn("Runtime character is not available (shutdown in progress)");
+            return false;
+        }
+
+        // Test if getSetting works
+        try {
+            // Recheck runtime before calling getSetting
+            if (!runtime?.getSetting) {
+                logger.warn("Runtime getSetting method is not available (shutdown in progress)");
+                return false;
+            }
+            const twitterUsername = runtime.getSetting("TWITTER_USERNAME");
+            if (!twitterUsername) {
+                // This is still an error because it should be set if we have a valid runtime
+                logger.error("Twitter username not found in settings");
+                return false;
+            }
+        } catch (error) {
+            // This could be due to shutdown or a real error, so check isShutdown
+            if (this.isShutdown) {
+                logger.warn("Error accessing runtime settings during shutdown");
+            } else {
+                logger.error("Error accessing runtime settings", {
+                    error: error instanceof Error ? error.message : String(error)
+                });
+            }
+            return false;
+        }
+
+        return true;
+    }
 
     onReady() {
         const generateNewTweetLoop = () => {
-            // Check if shutdown was called or runtime is null
-            if (this.isShutdown || !this.runtime?.agentId) {
+            if (!this.validateRuntime()) {
                 if (this.generationLoopTimeout) {
                     clearTimeout(this.generationLoopTimeout);
                     this.generationLoopTimeout = null;
@@ -59,61 +150,36 @@ export class TwitterGenerationClient extends ClientBase {
         generateNewTweetLoop();
     }
 
-    constructor(runtime: IAgentRuntime) {
-        // Initialize the client and pass an optional callback to be called when the client is ready
-        super({
-            runtime,
-        });
-
-        // Track this instance
-        if (TwitterGenerationClient.instances.size > 0) {
-            logger.warn('Multiple TwitterGenerationClient instances detected', {
-                existingInstances: TwitterGenerationClient.instances.size,
-                agentId: runtime?.agentId
-            });
-        }
-        TwitterGenerationClient.instances.add(this);
-
-        // Listen for shutdown event
-        this.on('shutdown', async () => {
-            this.isShutdown = true;
-            if (this.generationLoopTimeout) {
-                clearTimeout(this.generationLoopTimeout);
-                this.generationLoopTimeout = null;
-            }
-            // Wait for any pending operations to complete
-            await new Promise(resolve => setTimeout(resolve, 100));
-            // Clear runtime reference on shutdown
-            this.runtime = null;
-        });
-    }
-
     private async generateNewTweet() {
-        // Early return if shutdown or no runtime
-        if (this.isShutdown || !this.runtime?.agentId) {
-            logger.log("Skipping tweet generation - client is shutdown or runtime is not available");
+        if (!this.validateRuntime()) {
             return;
         }
 
+        this.isGeneratingTweet = true;
         logger.log("Generating new tweet");
+
         try {
-            // Cache runtime reference to ensure consistency
-            const runtime = this.runtime;
+            const runtime = this.cachedRuntime || this.runtime;
             if (!runtime?.agentId) {
-                logger.log("Runtime not available, skipping tweet generation");
+                logger.error("Runtime validation failed during tweet generation");
+                return;
+            }
+
+            const twitterUsername = runtime.getSetting("TWITTER_USERNAME");
+            if (!twitterUsername) {
+                logger.error("Twitter username not found in settings");
                 return;
             }
 
             await runtime.ensureUserExists(
                 runtime.agentId,
-                runtime.getSetting("TWITTER_USERNAME"),
+                twitterUsername,
                 runtime.character.name,
                 "twitter"
             );
 
-            // Check runtime again before proceeding
-            if (this.isShutdown || !runtime?.agentId) {
-                logger.log("Runtime no longer available after user check");
+            // Revalidate runtime after async operation
+            if (!this.validateRuntime()) {
                 return;
             }
 
@@ -127,8 +193,7 @@ export class TwitterGenerationClient extends ClientBase {
                 );
             } else {
                 // Check runtime before fetching timeline
-                if (this.isShutdown || !runtime?.agentId) {
-                    logger.log("Runtime no longer available before timeline fetch");
+                if (!this.validateRuntime()) {
                     return;
                 }
                 homeTimeline = await this.fetchHomeTimeline(50);
@@ -139,8 +204,7 @@ export class TwitterGenerationClient extends ClientBase {
             }
 
             // Check runtime before formatting timeline
-            if (this.isShutdown || !runtime?.agentId) {
-                logger.log("Runtime no longer available after timeline fetch");
+            if (!this.validateRuntime()) {
                 return;
             }
 
@@ -153,8 +217,7 @@ export class TwitterGenerationClient extends ClientBase {
                     .join("\n");
 
             // Check runtime before composing state
-            if (this.isShutdown || !runtime?.agentId) {
-                logger.log("Runtime no longer available before state composition");
+            if (!this.validateRuntime()) {
                 return;
             }
 
@@ -167,14 +230,13 @@ export class TwitterGenerationClient extends ClientBase {
                 },
                 {
                     twitterUserName:
-                        runtime.getSetting("TWITTER_USERNAME"),
+                        twitterUsername,
                     timeline: formattedHomeTimeline,
                 }
             );
 
             // Check runtime before context generation
-            if (this.isShutdown || !runtime?.agentId) {
-                logger.log("Runtime no longer available before context generation");
+            if (!this.validateRuntime()) {
                 return;
             }
 
@@ -188,13 +250,12 @@ export class TwitterGenerationClient extends ClientBase {
 
             // log context to file
             log_to_file(
-                `${runtime.getSetting("TWITTER_USERNAME")}_${datestr}_generate_context`,
+                `${twitterUsername}_${datestr}_generate_context`,
                 context
             );
 
             // Check runtime before text generation
-            if (this.isShutdown || !runtime?.agentId) {
-                logger.log("Runtime no longer available before text generation");
+            if (!this.validateRuntime()) {
                 return;
             }
 
@@ -205,14 +266,13 @@ export class TwitterGenerationClient extends ClientBase {
             });
 
             // Final runtime check before sending tweet
-            if (this.isShutdown || !runtime?.agentId) {
-                logger.log("Runtime no longer available before sending tweet");
+            if (!this.validateRuntime()) {
                 return;
             }
 
             logger.log("New Tweet:", newTweetContent);
             log_to_file(
-                `${runtime.getSetting("TWITTER_USERNAME")}_${datestr}_generate_response`,
+                `${twitterUsername}_${datestr}_generate_response`,
                 JSON.stringify(newTweetContent)
             );
 
@@ -223,8 +283,7 @@ export class TwitterGenerationClient extends ClientBase {
             if (!this.dryRun) {
                 try {
                     // Final check before API call
-                    if (this.isShutdown || !runtime?.agentId) {
-                        logger.log("Runtime no longer available before API call");
+                    if (!this.validateRuntime()) {
                         return;
                     }
 
@@ -237,8 +296,8 @@ export class TwitterGenerationClient extends ClientBase {
                         body.data.create_tweet.tweet_results.result;
 
                     // Check runtime before processing response
-                    if (this.isShutdown || !runtime?.agentId || !runtime.messageManager) {
-                        logger.log("Runtime no longer available after tweet sent");
+                    if (!this.validateRuntime() || !runtime.messageManager) {
+                        logger.error("Runtime or message manager not available after sending tweet");
                         return;
                     }
 
@@ -250,7 +309,7 @@ export class TwitterGenerationClient extends ClientBase {
                         userId: tweetResult.legacy.user_id_str,
                         inReplyToStatusId:
                             tweetResult.legacy.in_reply_to_status_id_str,
-                        permanentUrl: `https://twitter.com/${runtime.getSetting("TWITTER_USERNAME")}/status/${tweetResult.rest_id}`,
+                        permanentUrl: `https://twitter.com/${twitterUsername}/status/${tweetResult.rest_id}`,
                         hashtags: [],
                         mentions: [],
                         photos: [],
@@ -273,8 +332,8 @@ export class TwitterGenerationClient extends ClientBase {
                     await this.cacheTweet(tweet);
 
                     // Final runtime check before creating memory
-                    if (this.isShutdown || !runtime?.agentId || !runtime.messageManager) {
-                        logger.log("Runtime no longer available before memory creation");
+                    if (!this.validateRuntime() || !runtime.messageManager) {
+                        logger.error("Runtime or message manager not available before creating memory");
                         return;
                     }
 
@@ -301,7 +360,7 @@ export class TwitterGenerationClient extends ClientBase {
                         severity: 'ERROR',
                         method: 'twitter.TwitterGenerationClient.sendTweet',
                         agentId: runtime?.agentId,
-                        username: runtime?.getSetting("TWITTER_USERNAME"),
+                        username: twitterUsername,
                         content: content,
                         errorMessage: error.message,
                         errorStack: error.stack,
@@ -321,18 +380,21 @@ export class TwitterGenerationClient extends ClientBase {
             logger.error("Error generating new tweet:", {
                 severity: 'ERROR',
                 method: 'twitter.TwitterGenerationClient.generateNewTweet',
-                agentId: this.runtime?.agentId,
-                username: this.runtime?.getSetting("TWITTER_USERNAME"),
+                agentId: this.cachedRuntime?.agentId || this.runtime?.agentId,
+                username: this.cachedRuntime?.getSetting("TWITTER_USERNAME") || this.runtime?.getSetting("TWITTER_USERNAME"),
                 errorMessage: error.message,
                 errorStack: error.stack,
                 timestamp: new Date().toISOString(),
                 error: error
             });
+        } finally {
+            this.isGeneratingTweet = false;
         }
     }
 
     public shutdown(): Promise<void> {
         this.isShutdown = true;
+        this.cachedRuntime = null;
         if (this.generationLoopTimeout) {
             clearTimeout(this.generationLoopTimeout);
             this.generationLoopTimeout = null;
