@@ -39,9 +39,9 @@ import logger from "../../core/logger.ts";
 import { embeddingZeroVector } from "../../core/memory.ts";
 
 // Minimum interval between searches in minutes
-const MIN_SEARCH_INTERVAL_MINUTES = 1; // 60
+const MIN_SEARCH_INTERVAL_MINUTES = 60; // 60
 // Maximum interval between searches in minutes
-const MAX_SEARCH_INTERVAL_MINUTES = 2; // 80
+const MAX_SEARCH_INTERVAL_MINUTES = = 80; // 80
 // Number of milliseconds in a minute
 const MILLISECONDS_PER_MINUTE = 60 * 1000;
 
