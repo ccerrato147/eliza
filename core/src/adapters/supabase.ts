@@ -416,7 +416,7 @@ export class SupabaseDatabaseAdapter extends DatabaseAdapter {
     async countMemories(
         roomId: UUID,
         unique = true,
-        tableName: string
+        tableName = ""
     ): Promise<number> {
         if (!tableName) {
             throw new Error("tableName is required");
@@ -671,5 +671,13 @@ export class SupabaseDatabaseAdapter extends DatabaseAdapter {
         }
 
         return data as Relationship[];
+    }
+
+    /**
+     * Not implemented for Supabase adapter.
+     * @throws {Error} Always throws a "Not implemented" error
+     */
+    async getLatestTweetTimestamp(_agentId: UUID, _tableName: string): Promise<string | null> {
+        throw new Error('getLatestTweetTimestamp is not implemented for Supabase adapter');
     }
 }

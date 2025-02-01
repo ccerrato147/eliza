@@ -886,6 +886,7 @@ export class PostgresDatabaseAdapter extends DatabaseAdapter {
             client.release();
         }
     }
+
     async getActorDetails(params: { roomId: string }): Promise<Actor[]> {
         const sql = `
     SELECT 
@@ -907,6 +908,24 @@ export class PostgresDatabaseAdapter extends DatabaseAdapter {
         } catch (error) {
             console.error("Error fetching actor details:", error);
             throw new Error("Failed to fetch actor details");
+        }
+    }
+
+    async getLatestTweetTimestamp(agentId: UUID, tableName: string): Promise<string | null> {
+        const client = await this.pool.connect();
+        try {
+            const result = await client.query(`
+                SELECT "createdAt"
+                FROM memories 
+                WHERE type = $1 
+                AND "agentId" = $2
+                ORDER BY "createdAt" DESC 
+                LIMIT 1
+            `, [tableName, agentId]);
+
+            return result.rows.length > 0 ? new Date(result.rows[0].createdAt).toISOString() : null;
+        } finally {
+            client.release();
         }
     }
 }

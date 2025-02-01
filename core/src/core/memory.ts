@@ -222,4 +222,13 @@ export class MemoryManager implements IMemoryManager {
             this.tableName
         );
     }
+
+    /**
+     * Gets the timestamp of the latest tweet for a given agent.
+     * @param agentId The ID of the agent to get the latest tweet timestamp for.
+     * @returns A Promise resolving to the ISO string timestamp of the latest tweet, or null if no tweets exist.
+     */
+    async getLatestTweetTimestamp(agentId: UUID): Promise<string | null> {
+        return await this.runtime.databaseAdapter.getLatestTweetTimestamp(agentId, this.tableName);
+    }
 }

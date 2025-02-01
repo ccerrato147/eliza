@@ -482,6 +482,14 @@ export class SqliteDatabaseAdapter extends DatabaseAdapter {
             .count;
     }
 
+    /**
+     * Not implemented for SQLite adapter.
+     * @throws {Error} Always throws a "Not implemented" error
+     */
+    async getLatestTweetTimestamp(_agentId: UUID, _tableName: string): Promise<string | null> {
+        throw new Error('getLatestTweetTimestamp is not implemented for SQLite adapter');
+    }
+
     async getGoals(params: {
         roomId: UUID;
         userId?: UUID | null;

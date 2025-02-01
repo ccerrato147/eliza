@@ -432,6 +432,7 @@ export interface IDatabaseAdapter {
         userB: UUID;
     }): Promise<Relationship | null>;
     getRelationships(params: { userId: UUID }): Promise<Relationship[]>;
+    getLatestTweetTimestamp(agentId: UUID, tableName: string): Promise<string | null>;
 }
 
 export interface IMemoryManager {
@@ -471,6 +472,7 @@ export interface IMemoryManager {
     removeMemory(memoryId: UUID): Promise<void>;
     removeAllMemories(roomId: UUID): Promise<void>;
     countMemories(roomId: UUID, unique?: boolean): Promise<number>;
+    getLatestTweetTimestamp(agentId: UUID): Promise<string | null>;
 }
 
 export interface IAgentRuntime {

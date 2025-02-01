@@ -332,4 +332,12 @@ export abstract class DatabaseAdapter implements IDatabaseAdapter {
     abstract getRelationships(params: {
         userId: UUID;
     }): Promise<Relationship[]>;
+
+    /**
+     * Gets the timestamp of the latest tweet for a given agent.
+     * @param agentId The ID of the agent to get the latest tweet timestamp for.
+     * @param tableName The name of the table to search in.
+     * @returns A Promise resolving to the ISO string timestamp of the latest tweet, or null if no tweets exist.
+     */
+    abstract getLatestTweetTimestamp(agentId: UUID, tableName: string): Promise<string | null>;
 }

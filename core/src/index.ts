@@ -105,26 +105,7 @@ function initializeApiServer(port: number = 4419) {
      * Get the latest tweet timestamp for an agent directly from the database
      */
     async function getLatestTweetTimestamp(runtime: AgentRuntime, agentId: UUID): Promise<string | null> {
-        const pool = (runtime.databaseAdapter as any).pool;
-        if (!pool) {
-            throw new Error('Database pool not available');
-        }
-
-        const client = await pool.connect();
-        try {
-            const result = await client.query(`
-                SELECT "createdAt"
-                FROM memories 
-                WHERE type = 'messages' 
-                AND "agentId" = $1
-                ORDER BY "createdAt" DESC 
-                LIMIT 1
-            `, [agentId]);
-
-            return result.rows.length > 0 ? new Date(result.rows[0].createdAt).toISOString() : null;
-        } finally {
-            client.release();
-        }
+        return await runtime.messageManager.getLatestTweetTimestamp(agentId);
     }
 
     // Get list of running agents with their health status

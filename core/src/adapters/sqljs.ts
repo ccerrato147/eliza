@@ -533,6 +533,14 @@ export class SqlJsDatabaseAdapter extends DatabaseAdapter {
         return count;
     }
 
+    /**
+     * Not implemented for SQLJs adapter.
+     * @throws {Error} Always throws a "Not implemented" error
+     */
+    async getLatestTweetTimestamp(_agentId: UUID, _tableName: string): Promise<string | null> {
+        throw new Error('getLatestTweetTimestamp is not implemented for SQLJs adapter');
+    }
+
     async getGoals(params: {
         roomId: UUID;
         userId?: UUID | null;
