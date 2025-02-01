@@ -442,6 +442,9 @@ export class TwitterInteractionClient extends ClientBase {
                         const roomId = stringToUuid(conversationId);
                         const userIdUUID = stringToUuid(tweet.userId as string);
 
+                        // Mark the tweet as processed BEFORE handling it to prevent race conditions
+                        await this.markTweetAsProcessed(tweet.id);
+
                         await runtime?.ensureConnection(
                             userIdUUID,
                             roomId,
@@ -458,9 +461,6 @@ export class TwitterInteractionClient extends ClientBase {
                             userId: userIdUUID,
                             roomId,
                         };
-
-                        // Mark the tweet as processed BEFORE handling it
-                        await this.markTweetAsProcessed(tweet.id);
                         
                         await this.handleTweet({
                             tweet,
@@ -556,7 +556,7 @@ export class TwitterInteractionClient extends ClientBase {
             };
             const currentPost = formatTweet(tweet);
 
-            let homeTimeline = await this.fetchHomeTimeline(50);
+            const homeTimeline = await this.fetchHomeTimeline(50);
 
             const formattedHomeTimeline =
                 `# ${this.runtime.character.name}'s Home Timeline\n\n` +

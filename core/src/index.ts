@@ -25,14 +25,15 @@ import { PrettyConsole } from "./cli/colors.ts";
 import logger from "./core/logger.ts";
 import { Character } from "./core/types.ts";
 import { AgentRuntime } from "./core/runtime.ts";
+import { UUID } from "crypto";
 
-Configure logger
-logger.configure({
-    type: 'google-cloud',
-    projectId: process.env.GOOGLE_PROJECT_ID,
-    logName: process.env.GOOGLE_LOGS_NAME,
-    keyFilename: process.env.GOOGLE_LOGGER_SERVICE_CREDENTIALS
-});
+//Configure logger
+// logger.configure({
+//     type: 'google-cloud',
+//     projectId: process.env.GOOGLE_PROJECT_ID,
+//     logName: process.env.GOOGLE_LOGS_NAME,
+//     keyFilename: process.env.GOOGLE_LOGGER_SERVICE_CREDENTIALS
+// });
 
 // Initialize console
 export const prettyConsole = new PrettyConsole();
@@ -100,16 +101,52 @@ function initializeApiServer(port: number = 4419) {
     app.use(cors());
     app.use(bodyParser.json());
 
+    /**
+     * Get the latest tweet timestamp for an agent directly from the database
+     */
+    async function getLatestTweetTimestamp(runtime: AgentRuntime, agentId: UUID): Promise<string | null> {
+        const pool = (runtime.databaseAdapter as any).pool;
+        if (!pool) {
+            throw new Error('Database pool not available');
+        }
+
+        const client = await pool.connect();
+        try {
+            const result = await client.query(`
+                SELECT "createdAt"
+                FROM memories 
+                WHERE type = 'messages' 
+                AND "agentId" = $1
+                ORDER BY "createdAt" DESC 
+                LIMIT 1
+            `, [agentId]);
+
+            return result.rows.length > 0 ? new Date(result.rows[0].createdAt).toISOString() : null;
+        } finally {
+            client.release();
+        }
+    }
+
     // Get list of running agents with their health status
-    const listAgents: RequestHandler = (_req, res) => {
-        const agents = Array.from(runningAgents.entries()).map(([id, runtime]) => {
-            return {
-                id,
-                name: runtime.character.name,
-                status: 'running'
-            };
-        });
-        res.json(agents);
+    const listAgents: RequestHandler = async (_req, res) => {
+        try {
+            const agentStatuses = await Promise.all(
+                Array.from(runningAgents.entries()).map(async ([id, runtime]) => {
+                    const lastTweetTimestamp = await getLatestTweetTimestamp(runtime, id as UUID);
+
+                    return {
+                        id,
+                        name: runtime.character.name,
+                        status: 'running',
+                        lastTweetTimestamp
+                    };
+                })
+            );
+            res.json(agentStatuses);
+        } catch (error) {
+            logger.error('Error getting agent statuses:', error);
+            res.status(500).json({ error: 'Failed to get agent statuses' });
+        }
     };
 
     // Start a new agent
