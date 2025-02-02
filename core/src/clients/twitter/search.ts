@@ -15,7 +15,7 @@
  * Safety measures include avoiding self-replies, non-English tweets, and maintaining response limits.
  */
 
-import { SearchMode } from "agent-twitter-client";
+import { SearchMode, Tweet } from "agent-twitter-client";
 import fs from "fs";
 import { composeContext } from "../../core/context.ts";
 import {
@@ -39,9 +39,9 @@ import logger from "../../core/logger.ts";
 import { embeddingZeroVector } from "../../core/memory.ts";
 
 // Minimum interval between searches in minutes
-const MIN_SEARCH_INTERVAL_MINUTES = 60; // 60
+const MIN_SEARCH_INTERVAL_MINUTES = 1; // 60
 // Maximum interval between searches in minutes
-const MAX_SEARCH_INTERVAL_MINUTES = 80; // 80
+const MAX_SEARCH_INTERVAL_MINUTES = 1.4; // 80
 // Number of milliseconds in a minute
 const MILLISECONDS_PER_MINUTE = 60 * 1000;
 
@@ -504,16 +504,21 @@ export class TwitterSearchClient extends ClientBase {
                 return { text: "", action: "IGNORE" };
             }
 
-            // Fetch replies and retweets
-            const replies = selectedTweet.thread;
-            const replyContext = replies
-                .filter(
-                    (reply) =>
-                        reply.username !==
-                        runtime.getSetting("TWITTER_USERNAME")
-                )
-                .map((reply) => `@${reply.username}: ${reply.text}`)
-                .join("\n");
+            // Format the entire conversation thread in chronological order
+            const formatTweet = (tweet: Tweet) => {
+                return `ID: ${tweet.id}
+From: ${tweet.name} (@${tweet.username})
+Text: ${tweet.text}
+${tweet.photos?.length > 0 ? '[Contains media]' : ''}
+---`;
+            };
+
+            // Sort thread by timestamp to ensure chronological order
+            const sortedThread = [...selectedTweet.thread].sort((a, b) => a.timestamp - b.timestamp);
+            
+            const conversationContext = `# Full Conversation Thread\n\n${
+                sortedThread.map(formatTweet).join('\n\n')
+            }\n\n# Current Tweet to Reply to:\n${formatTweet(selectedTweet)}`;
 
             let tweetBackground = "";
             if (selectedTweet.isRetweet) {
@@ -537,14 +542,12 @@ export class TwitterSearchClient extends ClientBase {
                 twitterClient: this.twitterClient,
                 twitterUserName: runtime.getSetting("TWITTER_USERNAME"),
                 timeline: formattedHomeTimeline,
+                currentPost: conversationContext,
                 tweetContext: `${tweetBackground}
-  
-  Original Post:
-  By @${selectedTweet.username}
-  ${selectedTweet.text}${replyContext.length > 0 && `\nReplies to original post:\n${replyContext}`}
-  ${`Original post text: ${selectedTweet.text}`}
-  ${selectedTweet.urls.length > 0 ? `URLs: ${selectedTweet.urls.join(", ")}\n` : ""}${imageDescriptions.length > 0 ? `\nImages in Post (Described): ${imageDescriptions.join(", ")}\n` : ""}
-  `,
+
+${conversationContext}
+${selectedTweet.urls.length > 0 ? `URLs: ${selectedTweet.urls.join(", ")}\n` : ""}${imageDescriptions.length > 0 ? `\nImages in Post (Described): ${imageDescriptions.join(", ")}\n` : ""}
+`,
             });
 
             await this.saveRequestMessage(message, state as State);

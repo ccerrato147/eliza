@@ -28,12 +28,12 @@ import { AgentRuntime } from "./core/runtime.ts";
 import { UUID } from "crypto";
 
 //Configure logger
-// logger.configure({
-//     type: 'google-cloud',
-//     projectId: process.env.GOOGLE_PROJECT_ID,
-//     logName: process.env.GOOGLE_LOGS_NAME,
-//     keyFilename: process.env.GOOGLE_LOGGER_SERVICE_CREDENTIALS
-// });
+logger.configure({
+    type: 'google-cloud',
+    projectId: process.env.GOOGLE_PROJECT_ID,
+    logName: process.env.GOOGLE_LOGS_NAME,
+    keyFilename: process.env.GOOGLE_LOGGER_SERVICE_CREDENTIALS
+});
 
 // Initialize console
 export const prettyConsole = new PrettyConsole();
