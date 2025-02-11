@@ -3,50 +3,86 @@
  * Provides access to actions, clients, adapters, and providers.
  */
 import express from "express";
-import type { Request, Response, RequestHandler } from "express";
+import type { RequestHandler, Request, Response, NextFunction } from "express";
 import cors from "cors";
 import bodyParser from "body-parser";
-import * as Client from "./clients/index.ts";
-import { Arguments } from "./types/index.ts";
 import {
-    createAgentRuntime,
     createDirectRuntime,
     getTokenForProvider,
-    initializeClients,
     initializeDatabase,
     loadCharacters,
-    parseArguments,
 } from "./cli/index.ts";
 import { PrettyConsole } from "./cli/colors.ts";
 import logger from "./core/logger.ts";
 import { Character } from "./core/types.ts";
 import { AgentRuntime } from "./core/runtime.ts";
 import { UUID } from "crypto";
-import { ParamsDictionary } from "express-serve-static-core";
-import multer, { File } from "multer";
 import { composeContext } from "./core/context.ts";
 import { generateMessageResponse } from "./core/generation.ts";
 import { messageCompletionFooter } from "./core/parsing.ts";
 import { stringToUuid } from "./core/uuid.ts";
 import { Content, Memory, ModelClass, State } from "./core/types.ts";
-import { ParsedQs } from "qs";
+
+// Constants
+const DEFAULT_PORT = 3773;
+const API_KEY = process.env.DIRECT_API_KEY;
 
 //Configure logger
-logger.configure({
-    type: 'google-cloud',
-    projectId: process.env.GOOGLE_PROJECT_ID,
-    logName: process.env.GOOGLE_LOGS_NAME,
-    keyFilename: process.env.GOOGLE_LOGGER_SERVICE_CREDENTIALS
-});
+// logger.configure({
+//     type: 'google-cloud',
+//     projectId: process.env.GOOGLE_PROJECT_ID,
+//     logName: process.env.GOOGLE_LOGS_NAME,
+//     keyFilename: process.env.GOOGLE_LOGGER_SERVICE_CREDENTIALS
+// });
+
+// API key validation middleware
+const validateApiKey = (req: Request, res: Response, next: NextFunction): void => {
+    const apiKey = req.headers['x-api-key'];
+    
+    if (!API_KEY) {
+        logger.error({
+            severity: 'ERROR',
+            message: 'API key not configured on server',
+            context: { timestamp: new Date().toISOString() }
+        });
+        res.status(500).json({ error: 'Server configuration error' });
+        return;
+    }
+
+    if (!apiKey) {
+        logger.error({
+            severity: 'ERROR',
+            message: 'Missing API key in request',
+            context: {
+                path: req.path,
+                timestamp: new Date().toISOString()
+            }
+        });
+        res.status(401).json({ error: 'API key is required' });
+        return;
+    }
+
+    if (apiKey !== API_KEY) {
+        logger.error({
+            severity: 'ERROR',
+            message: 'Invalid API key',
+            context: {
+                path: req.path,
+                timestamp: new Date().toISOString()
+            }
+        });
+        res.status(401).json({ error: 'Invalid API key' });
+        return;
+    }
+
+    next();
+};
 
 // Initialize console
 export const prettyConsole = new PrettyConsole();
 prettyConsole.clear();
 prettyConsole.closeByNewLine = true;
 prettyConsole.useIcons = true;
-
-// Initialize DirectClient
-const directClient = new Client.DirectClient();
 
 // Map to keep track of running agents
 const runningAgents = new Map<string, AgentRuntime>();
@@ -168,10 +204,6 @@ async function stopAgent(agentId: string) {
     }
 }
 
-interface AgentParams extends ParamsDictionary {
-    id: string;
-}
-
 interface MessageRequest {
     roomId?: string;
     userId?: string;
@@ -179,8 +211,6 @@ interface MessageRequest {
     name?: string;
     text: string;
 }
-
-const upload = multer({ storage: multer.memoryStorage() });
 
 export const messageHandlerTemplate =
     `# Action Examples
@@ -211,18 +241,16 @@ Note that {{agentName}} is capable of reading/seeing/hearing various forms of me
 /**
  * Initialize the HTTP API server for agent management and direct client functionality
  */
-function initializeApiServer(port: number = 3000) {
+function initializeApiServer(port: number = DEFAULT_PORT) {
     const app = express();
     
     app.use(cors());
     app.use(bodyParser.json());
     app.use(bodyParser.urlencoded({ extended: true }));
 
-    // Define an interface that extends the Express Request interface
-    interface CustomRequest extends Request {
-        file: File;
-    }
-    
+    // Apply API key validation to all endpoints
+    app.use('/agents', validateApiKey);
+
     // Message endpoint
     app.post("/agents/:agentId/message", 
         (async (req, res, next) => {
@@ -461,7 +489,7 @@ async function main() {
     });
     
     try {
-        const serverPort = parseInt(process.env.SERVER_PORT || "3000");
+        const serverPort = parseInt(process.env.SERVER_PORT || DEFAULT_PORT.toString());
         
         logger.log({
             severity: 'DEBUG',
@@ -470,7 +498,7 @@ async function main() {
         });
         
         // Initialize only one server instance
-        const app = initializeApiServer(serverPort);
+        const _app = initializeApiServer(serverPort);
 
         logger.log({
             severity: 'INFO',
@@ -572,8 +600,8 @@ main().catch(error => {
     process.exit(1);
 });
 
-// Get list of running agents - Add the getLatestTweetTimestamp function
-async function getLatestTweetTimestamp(runtime: AgentRuntime, id: string): Promise<number | null> {
+// Update the getLatestTweetTimestamp function to use underscore prefix for unused params
+async function getLatestTweetTimestamp(_runtime: AgentRuntime, _id: string): Promise<number | null> {
     // This is a placeholder implementation - implement according to your needs
     return null;
 }

@@ -1,32 +1,37 @@
 // Import required modules
-import * as Client from "./clients/index.ts";
-import { Character } from "./core/types.ts";
 import readline from "readline";
-import { Arguments } from "./types/index.ts";
-import {
-    createAgentRuntime,
-    createDirectRuntime,
-    getTokenForProvider,
-    initializeClients,
-    initializeDatabase,
-    loadCharacters,
-    parseArguments,
-} from "./cli/index.ts";
 import { PrettyConsole } from "./cli/colors.ts";
 import { randomUUID } from "crypto";
+import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-// logger.configure({
-//     type: 'google-cloud',
-//     projectId: process.env.GOOGLE_PROJECT_ID,
-//     logName: process.env.GOOGLE_LOGS_NAME,
-//     keyFilename: process.env.GOOGLE_APPLICATION_CREDENTIALS
-// });
+// Get the directory name of the current module
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Initialize console
 const prettyConsole = new PrettyConsole();
 prettyConsole.clear();
 prettyConsole.closeByNewLine = true;
 prettyConsole.useIcons = true;
+
+// Load environment variables
+const envPath = path.resolve(__dirname, '../.env');
+console.log('Loading .env from:', envPath);
+const result = dotenv.config({ path: envPath });
+
+if (result.error) {
+    prettyConsole.error(`Error loading .env file: ${result.error}`);
+    process.exit(1);
+}
+
+const API_KEY = process.env.DIRECT_API_KEY;
+if (!API_KEY) {
+    prettyConsole.error("DIRECT_API_KEY is not set in the environment variables");
+    console.log('Available environment variables:', Object.keys(process.env));
+    process.exit(1);
+}
 
 // Parse command line arguments
 const parseArgs = () => {
@@ -49,7 +54,7 @@ if (!args.agent) {
     process.exit(1);
 }
 
-const API_BASE = "http://localhost:3000";
+const API_BASE = "http://localhost:3773";
 const agentId = args.agent;
 
 // Generate a unique roomId for this session
@@ -61,7 +66,10 @@ const sessionRoomId = `terminal-${randomUUID()}`;
 async function startAgent() {
     try {
         const response = await fetch(`${API_BASE}/agents/${agentId}/start`, {
-            method: 'POST'
+            method: 'POST',
+            headers: {
+                'x-api-key': API_KEY
+            }
         });
         
         if (!response.ok) {
@@ -100,7 +108,10 @@ async function chat() {
             // Try to stop the agent before exiting
             try {
                 await fetch(`${API_BASE}/agents/${agentId}/stop`, {
-                    method: 'POST'
+                    method: 'POST',
+                    headers: {
+                        'x-api-key': API_KEY
+                    }
                 });
             } catch (error) {
                 console.error(`Error stopping agent: ${error}`);
@@ -116,6 +127,7 @@ async function chat() {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
+                        'x-api-key': API_KEY
                     },
                     body: JSON.stringify({
                         text: input,
