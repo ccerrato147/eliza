@@ -10,6 +10,7 @@
       "start:service:all": "pnpm --dir core start:service:all",
       "stop:service:all": "pnpm --dir core stop:service:all",
       "start": "pnpm --dir core start",
+      "start:direct": "pnpm --dir core start:direct",
       "start:terminal": "pnpm --dir core start:terminal",
       "dev": "pnpm --dir core dev",
       "lint": "pnpm --dir core lint",
