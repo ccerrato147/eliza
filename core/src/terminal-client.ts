@@ -1,110 +1,82 @@
-/**
- * Core exports for the Eliza system.
- * Provides access to actions, clients, adapters, and providers.
- */
-// Export core functionality for handling agent actions (message processing, commands, etc.)
-export * from "./actions/index.ts";
-// Export client implementations for different platforms (Discord, Direct, etc.)
-export * from "./clients/index.ts";
-// Export adapters for connecting to different services and APIs
-export * from "./adapters/index.ts";
-// Export providers for different AI models and services
-export * from "./providers/index.ts";
-
-// Import client implementations for direct messaging functionality
+// Import required modules
 import * as Client from "./clients/index.ts";
-
-// Import character type definition for agent configuration
 import { Character } from "./core/types.ts";
-
-// Import Node.js readline for interactive command-line interface
 import readline from "readline";
-// Import command-line argument type definitions
 import { Arguments } from "./types/index.ts";
-// Import core runtime and initialization functions
 import {
-    createAgentRuntime,     // Creates runtime environment for AI agents
-    createDirectRuntime,    // Creates runtime for direct messaging
-    getTokenForProvider,    // Retrieves API tokens for AI providers
-    initializeClients,      // Sets up communication clients
-    initializeDatabase,     // Sets up persistent storage
-    loadCharacters,         // Loads character configurations
-    parseArguments,         // Processes command-line arguments
+    createAgentRuntime,
+    createDirectRuntime,
+    getTokenForProvider,
+    initializeClients,
+    initializeDatabase,
+    loadCharacters,
+    parseArguments,
 } from "./cli/index.ts";
-// Import console formatting utilities
 import { PrettyConsole } from "./cli/colors.ts";
+import { randomUUID } from "crypto";
 
-// Add import for logger
-import logger from "./core/logger.ts";
+// logger.configure({
+//     type: 'google-cloud',
+//     projectId: process.env.GOOGLE_PROJECT_ID,
+//     logName: process.env.GOOGLE_LOGS_NAME,
+//     keyFilename: process.env.GOOGLE_APPLICATION_CREDENTIALS
+// });
 
-logger.configure({
-    type: 'google-cloud',
-    projectId: process.env.GOOGLE_PROJECT_ID,
-    logName: process.env.GOOGLE_LOGS_NAME,
-    keyFilename: process.env.GOOGLE_APPLICATION_CREDENTIALS
-});
-
-
-// Parse command line arguments and initialize configuration
-let argv: Arguments = parseArguments();
-
-/**
- * Pretty console instance for formatted output.
- * Configured with newline closing and icons enabled.
- */
-export const prettyConsole = new PrettyConsole();
+// Initialize console
+const prettyConsole = new PrettyConsole();
 prettyConsole.clear();
 prettyConsole.closeByNewLine = true;
 prettyConsole.useIcons = true;
 
-// Load characters - if argv.characters is undefined, loadCharacters will use defaultCharacter
-let characters = await loadCharacters(argv.characters);
+// Parse command line arguments
+const parseArgs = () => {
+    const args = process.argv.slice(2);
+    const result: { agent?: string } = {};
+    
+    for (let i = 0; i < args.length; i++) {
+        if (args[i].startsWith('--agent=')) {
+            result.agent = args[i].split('=')[1];
+        }
+    }
+    
+    return result;
+};
 
-if (characters.length === 0) {
-    prettyConsole.error("No characters could be loaded. Exiting...");
+const args = parseArgs();
+
+if (!args.agent) {
+    prettyConsole.error("Please provide an agent ID with --agent=<id>");
     process.exit(1);
 }
 
-const directClient = new Client.DirectClient();
+const API_BASE = "http://localhost:3000";
+const agentId = args.agent;
 
-// Start the direct client
-const serverPort = parseInt(process.env.SERVER_PORT || "3000");
-directClient.start(serverPort);
-
-/**
- * Initializes and starts an agent for a given character.
- * @param character - The character configuration to create an agent for
- * @returns Promise containing initialized clients
- */
-async function startAgent(character: Character) {
-    logger.log(`Starting agent for character ${character.name}`, 'green');
-    
-    const token = getTokenForProvider(character.modelProvider, character);
-    const db = initializeDatabase();
-
-    // Create main runtime for handling interactions through various clients
-    const runtime = await createAgentRuntime(character, db, token);
-    
-    // Create separate runtime for direct HTTP API interactions
-    const directRuntime = createDirectRuntime(character, db, token);
-
-    const clients = await initializeClients(character, runtime);
-    directClient.registerAgent(await directRuntime);
-
-    return clients;
-}
+// Generate a unique roomId for this session
+const sessionRoomId = `terminal-${randomUUID()}`;
 
 /**
- * Initializes agents for all configured characters.
- * Iterates through the character list and starts individual agents.
+ * Start the specified agent through the API
  */
-const startAgents = async () => {
-    for (const character of characters) {
-        await startAgent(character);
+async function startAgent() {
+    try {
+        const response = await fetch(`${API_BASE}/agents/${agentId}/start`, {
+            method: 'POST'
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            if (response.status !== 400) { // Ignore "already running" error
+                throw new Error(error.error || 'Failed to start agent');
+            }
+        }
+        
+        console.log(`Agent ${agentId} is ready`);
+    } catch (error) {
+        prettyConsole.error(`Failed to start agent: ${error}`);
+        process.exit(1);
     }
-};
-
-startAgents();
+}
 
 const rl = readline.createInterface({
     input: process.stdin,
@@ -117,7 +89,7 @@ const rl = readline.createInterface({
  * Supports 'exit' command to terminate the chat session.
  */
 async function chat() {
-    logger.log("Chat started. Type 'exit' to quit.", 'blue');
+    console.log("Chat started. Type 'exit' to quit.");
     
     while (true) {
         const input = await new Promise<string>(resolve => {
@@ -125,33 +97,64 @@ async function chat() {
         });
 
         if (input.toLowerCase() === "exit") {
+            // Try to stop the agent before exiting
+            try {
+                await fetch(`${API_BASE}/agents/${agentId}/stop`, {
+                    method: 'POST'
+                });
+            } catch (error) {
+                console.error(`Error stopping agent: ${error}`);
+            }
             rl.close();
             return;
         }
 
-        const agentId = characters[0].name.toLowerCase();
-        const response = await fetch(
-            `http://localhost:3000/${agentId}/message`,
-            {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                    text: input,
-                    userId: "user",
-                    userName: "User",
-                }),
-            }
-        );
+        try {
+            const response = await fetch(
+                `${API_BASE}/agents/${agentId}/message`,
+                {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                        text: input,
+                        userId: "terminal-user",
+                        userName: "Terminal User",
+                        roomId: sessionRoomId,
+                    }),
+                }
+            );
 
-        const data = await response.json();
-        for (const message of data) {
-            logger.log(`${characters[0].name}: ${message.text}`);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const messages = await response.json();
+            
+            for (const message of messages) {
+                if (typeof message === 'string') {
+                    console.log(`Agent: ${message}`);
+                } else if (message.user && message.text) {
+                    console.log(`${message.user}: ${message.text}`);
+                } else if (message.content && message.content.text) {
+                    console.log(`Agent: ${message.content.text}`);
+                } else if (message.text) {
+                    console.log(`Agent: ${message.text}`);
+                }
+            }
+        } catch (error) {
+            console.error(`Error: ${error}`);
         }
     }
 }
-logger.log("Chat started. Type 'exit' to quit.", 'blue');
-chat();
+
+// Start the agent and begin chat
+startAgent().then(() => {
+    chat();
+}).catch(error => {
+    prettyConsole.error(`Fatal error: ${error}`);
+    process.exit(1);
+});
 
 

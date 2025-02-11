@@ -10,6 +10,7 @@
       "start:service:all": "pnpm --dir core start:service:all",
       "stop:service:all": "pnpm --dir core stop:service:all",
       "start": "pnpm --dir core start",
+      "start:terminal": "pnpm --dir core start:terminal",
       "dev": "pnpm --dir core dev",
       "lint": "pnpm --dir core lint",
       "prettier-check": "npx prettier --check .",
@@ -30,7 +31,7 @@
       "typedoc": "^0.26.11"
     },
     "engines": {
-      "node": "~22.0.0"
+      "node": "^22.0.0"
     },
     "pnpm": {
       "overrides": {

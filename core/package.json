@@ -32,7 +32,8 @@
         "test": "jest --runInBand",
         "test:watch": "jest --runInBand --watch",
         "test:sqlite": "cross-env TEST_DATABASE_CLIENT=sqlite jest --runInBand --watch",
-        "test:sqljs": "cross-env TEST_DATABASE_CLIENT=sqljs jest --runInBand --watch"
+        "test:sqljs": "cross-env TEST_DATABASE_CLIENT=sqljs jest --runInBand --watch",
+        "start:terminal": "node --loader ts-node/esm src/terminal-client.ts"
     },
     "author": "",
     "license": "MIT",
