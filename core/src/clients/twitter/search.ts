@@ -14,23 +14,12 @@
  * Safety measures include avoiding self-replies and non-English tweets.
  */
 
-import { SearchMode, Tweet } from "agent-twitter-client";
-import fs from "fs";
-import { composeContext } from "../../core/context.ts";
-import {
-    generateMessageResponse,
-    generateText,
-} from "../../core/generation.ts";
-import { log_to_file } from "../../core/logger.ts";
-import { messageCompletionFooter } from "../../core/parsing.ts";
 import {
     IAgentRuntime,
-    ModelClass,
     Memory,
 } from "../../core/types.ts";
 import { stringToUuid } from "../../core/uuid.ts";
 import { ClientBase } from "./base.ts";
-import { gatherThreadContext, sendTweetChunks, wait } from "./utils.ts";
 import logger from "../../core/logger.ts";
 import { embeddingZeroVector } from "../../core/memory.ts";
 
@@ -41,6 +30,7 @@ const MAX_SEARCH_INTERVAL_MINUTES = 1.4; // 80
 // Number of milliseconds in a minute
 const MILLISECONDS_PER_MINUTE = 60 * 1000;
 
+/*
 const messageHandlerTemplate =
     `{{relevantFacts}}
 {{recentFacts}}
@@ -68,8 +58,8 @@ IMPORTANT: Your response CANNOT be longer than 20 words.
 Aim for 1-2 short sentences maximum. Be concise and direct.
 
 Your response should not contain any questions. Brief, concise statements only. No emojis. Use \\n\\n (double spaces) between statements.
-
-` + messageCompletionFooter;
+`;
+*/
 
 export class TwitterSearchClient extends ClientBase {
     private searchInterval: NodeJS.Timeout | null = null;
@@ -321,6 +311,14 @@ export class TwitterSearchClient extends ClientBase {
     }
 
     private async engageWithSearchTerms() {
+        logger.log('Search loop enter', {
+            severity: 'INFO',
+            method: 'search.TwitterSearchClient.engageWithSearchTerms',
+            agentId: this.runtime?.agentId,
+            timestamp: new Date().toISOString()
+        });
+
+        /*
         // Early return if runtime validation fails
         if (!this.validateRuntime()) {
             return;
@@ -647,6 +645,9 @@ ${selectedTweet.urls.length > 0 ? `URLs: ${selectedTweet.urls.join(", ")}\n` : "
                 return;
             }
 
+            // Append #truth to the response
+            responseContent.text = `${responseContent.text} #truth`;
+
             logger.log('Generated response for tweet', {
                 severity: 'INFO',
                 method: 'search.TwitterSearchClient.engageWithSearchTerms',
@@ -703,5 +704,6 @@ ${selectedTweet.urls.length > 0 ? `URLs: ${selectedTweet.urls.join(", ")}\n` : "
         } finally {
             this.isEngagementInProgress = false;
         }
+        */
     }
 }

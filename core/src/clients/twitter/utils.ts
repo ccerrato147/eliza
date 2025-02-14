@@ -66,7 +66,7 @@ export async function buildConversationThread(
                 "twitter"
             );
 
-            client.runtime.messageManager.createMemory({
+            await client.runtime.messageManager.createMemory({
                 id: stringToUuid(currentTweet.id + "-" + client.runtime.agentId),
                 agentId: client.runtime.agentId,
                 content: {
@@ -108,25 +108,29 @@ export async function sendTweetChunks(
     twitterUsername: string,
     inReplyTo: string
 ): Promise<Memory[]> {
-    // Clean up duplicate mentions at the start of the content
+    // Clean up duplicate mentions at the start of the content while preserving hashtags
     const cleanedText = content.text.replace(/^(@\w+\s+)+/g, (match) => {
         // Get unique mentions
         const mentions = [...new Set(match.trim().split(/\s+/))];
         return mentions.join(' ') + ' ';
     });
 
+    // Use the cleaned text with hashtags preserved for tweet chunks
     const tweetChunks = splitTweetContent(cleanedText);
     const sentTweets: Tweet[] = [];
+
+    // Keep track of the last tweet ID to build the thread
+    let currentReplyTo = inReplyTo;
 
     for (const chunk of tweetChunks) {
         const result = await client.requestQueue.add(
             async () =>
                 await client.twitterClient.sendTweet(
                     chunk.replaceAll(/\\n/g, "\n").trim(),
-                    inReplyTo
+                    currentReplyTo  // Use the current tweet to reply to
                 )
         );
-        // console.log("send tweet result:\n", result);
+        
         const body = await result.json();
         logger.log("send tweet body:\n", body.data.create_tweet.tweet_results);
         const tweetResult = body.data.create_tweet.tweet_results.result;
@@ -148,14 +152,18 @@ export async function sendTweetChunks(
         } as Tweet;
 
         sentTweets.push(finalTweet);
+        
+        // Update the reply-to ID to the last sent tweet for the next iteration
+        currentReplyTo = finalTweet.id;
     }
 
+    // Use the original content text with hashtag for both memory and tweet
     const memories: Memory[] = sentTweets.map((tweet) => ({
         id: stringToUuid(tweet.id + "-" + client.runtime.agentId),
         agentId: client.runtime.agentId,
         userId: client.runtime.agentId,
         content: {
-            text: tweet.text,
+            text: content.text,  // Use the original content text with hashtag
             source: "twitter",
             url: tweet.permanentUrl,
             inReplyTo: tweet.inReplyToStatusId

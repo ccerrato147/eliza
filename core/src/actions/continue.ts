@@ -146,7 +146,13 @@ export const continueAction: Action = {
             return;
         }
 
-        await callback(response);
+        // Add #wordTwo to the response text for debugging
+        if (response.text) {
+            response.text = `${response.text} #wordTwo`;
+            if (callback) {
+                await callback(response);
+            }
+        }
 
         // if the action is CONTINUE, check if we are over maxContinuesInARow
         if (response.action === "CONTINUE") {
@@ -220,7 +226,7 @@ export const continueAction: Action = {
             {
                 user: "{{user1}}",
                 content: {
-                    text: "That it’s more about moments than things",
+                    text: "That it's more about moments than things",
                     action: "CONTINUE",
                 },
             },

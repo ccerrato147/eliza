@@ -277,7 +277,7 @@ export class TwitterGenerationClient extends ClientBase {
             );
 
             const slice = newTweetContent.replaceAll(/\\n/g, "\n").trim();
-            const content = slice;
+            const content = slice + " #life";
 
             // Send the new tweet
             if (!this.dryRun) {
