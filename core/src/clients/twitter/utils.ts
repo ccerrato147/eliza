@@ -190,3 +190,31 @@ function splitTweetContent(content: string): string[] {
 
     return tweetChunks;
 }
+
+export async function gatherThreadContext(
+    tweet: Tweet
+): Promise<Tweet[]> {
+    const thread: Tweet[] = [];
+    const visited: Set<string> = new Set();
+
+    async function processThread(currentTweet: Tweet) {
+        if (!currentTweet) {
+            logger.log("No current tweet found");
+            return;
+        }
+
+        if (visited.has(currentTweet.id)) {
+            return;
+        }
+        visited.add(currentTweet.id);
+
+        thread.unshift(currentTweet);
+
+        if (currentTweet.inReplyToStatus) {
+            await processThread(currentTweet.inReplyToStatus);
+        }
+    }
+
+    await processThread(tweet);
+    return thread;
+}
