@@ -34,7 +34,9 @@ import {
 } from "../../core/generation.ts";
 import { embeddingZeroVector } from "../../core/memory.ts";
 
-const MAX_INTERACTIONS_PER_THREAD = 7;
+const MAX_INTERACTIONS_PER_THREAD = 12;
+const MIN_CHECK_INTERVAL_MINUTES = 1;
+const MAX_CHECK_INTERVAL_MINUTES = 1.2;
 
 export const messageHandlerTemplate =
     `{{relevantFacts}}
@@ -88,27 +90,162 @@ IMPORTANT: {{agentName}} (aka @{{twitterUserName}}) is particularly sensitive ab
 ` + shouldRespondFooter;
 
 export class TwitterInteractionClient extends ClientBase {
+    private static instances = new Set<TwitterInteractionClient>();
+    protected isShutdown: boolean = false;
+    private isInteractionInProgress: boolean = false;
+    private cachedRuntime: IAgentRuntime | null = null;
+    private interactionLoop: NodeJS.Timeout | null = null;
     public lastCheckedTweetId: number | null = null;
 
     constructor(runtime: IAgentRuntime) {
         super({
             runtime,
         });
+        
+        // Cache runtime reference
+        this.cachedRuntime = runtime;
+        
+        // Track this instance
+        if (TwitterInteractionClient.instances.size > 0) {
+            logger.warn('Multiple TwitterInteractionClient instances detected', {
+                existingInstances: TwitterInteractionClient.instances.size,
+                agentId: runtime?.agentId
+            });
+        }
+        TwitterInteractionClient.instances.add(this);
+
+        // Listen for shutdown event
+        this.on('shutdown', async () => {
+            await this.shutdown();
+        });
+    }
+
+    private validateRuntime(): boolean {
+        // Check explicit shutdown flag
+        if (this.isShutdown) {
+            logger.warn("Client is shutdown, skipping operation");
+            return false;
+        }
+
+        const runtime = this.cachedRuntime || this.runtime;
+        
+        // All these conditions can happen during shutdown, so log appropriately
+        if (!runtime) {
+            logger.warn("Runtime is not available (shutdown in progress)");
+            return false;
+        }
+
+        // Recheck runtime before accessing agentId
+        if (!runtime?.agentId) {
+            logger.warn("Runtime is missing properties (shutdown in progress)");
+            return false;
+        }
+
+        // Recheck runtime before accessing character
+        if (!runtime?.character) {
+            logger.warn("Runtime character is not available (shutdown in progress)");
+            return false;
+        }
+
+        // Test if getSetting works
+        try {
+            // Recheck runtime before calling getSetting
+            if (!runtime?.getSetting) {
+                logger.warn("Runtime getSetting method is not available (shutdown in progress)");
+                return false;
+            }
+            const twitterUsername = runtime.getSetting("TWITTER_USERNAME");
+            if (!twitterUsername) {
+                logger.error('Twitter username not found in settings', {
+                    severity: 'ERROR',
+                    method: 'interactions.TwitterInteractionClient.validateRuntime',
+                    agentId: runtime?.agentId,
+                    twitterUsername: runtime?.getSetting("TWITTER_USERNAME"),
+                    errorMessage: 'Twitter username setting is missing',
+                    timestamp: new Date().toISOString()
+                });
+                return false;
+            }
+        } catch (error) {
+            // This could be due to shutdown or a real error, so check isShutdown
+            if (this.isShutdown) {
+                logger.warn("Error accessing runtime settings during shutdown");
+            } else {
+                logger.error('Error accessing runtime settings', {
+                    severity: 'ERROR',
+                    method: 'interactions.TwitterInteractionClient.validateRuntime',
+                    agentId: runtime?.agentId,
+                    twitterUsername: runtime?.getSetting("TWITTER_USERNAME"),
+                    errorMessage: error instanceof Error ? error.message : String(error),
+                    errorStack: error instanceof Error ? error.stack : undefined,
+                    timestamp: new Date().toISOString(),
+                    error: error
+                });
+            }
+            return false;
+        }
+
+        return true;
+    }
+
+    public shutdown(): Promise<void> {
+        // Set shutdown flag first to prevent new operations
+        this.isShutdown = true;
+        this.cachedRuntime = null;
+
+        // Clear any running intervals
+        if (this.interactionLoop) {
+            clearTimeout(this.interactionLoop);
+            this.interactionLoop = null;
+        }
+
+        // Remove this instance from tracking
+        TwitterInteractionClient.instances.delete(this);
+
+        // Return a promise that resolves after cleanup
+        return new Promise<void>(resolve => {
+            const checkInteraction = () => {
+                if (this.isInteractionInProgress) {
+                    setTimeout(checkInteraction, 100);
+                    return;
+                }
+                this.runtime = null;
+                resolve();
+            };
+            
+            checkInteraction();
+        });
     }
 
     onReady() {
         const handleTwitterInteractionsLoop = async () => {
+            if (!this.validateRuntime()) {
+                if (this.interactionLoop) {
+                    clearTimeout(this.interactionLoop);
+                    this.interactionLoop = null;
+                }
+                return;
+            }
+
             await this.loadLastCheckedTweetId();
             await this.handleTwitterInteractions();
-            setTimeout(
-                handleTwitterInteractionsLoop,
-                (Math.floor(Math.random() * (2 - 1 + 1)) + 1) * 60 * 60 * 1000 // 1 to 2 hours
-            );
+            
+            // Only schedule next run if not shutdown
+            if (!this.isShutdown) {
+                this.interactionLoop = setTimeout(
+                    handleTwitterInteractionsLoop,
+                    (Math.floor(Math.random() * (MAX_CHECK_INTERVAL_MINUTES - MIN_CHECK_INTERVAL_MINUTES + 1)) + MIN_CHECK_INTERVAL_MINUTES) * 60 * 1000
+                );
+            }
         };
         handleTwitterInteractionsLoop();
     }
 
     private async loadLastCheckedTweetId(): Promise<void> {
+        if (!this.validateRuntime()) {
+            return;
+        }
+
         const stateId = stringToUuid(`twitter-state-${this.runtime.agentId}`);
         try {
             const stateMemory = await this.runtime.messageManager.getMemoryById(stateId);
@@ -128,6 +265,10 @@ export class TwitterInteractionClient extends ClientBase {
     }
 
     private async saveLastCheckedTweetId(tweetId: number): Promise<void> {
+        if (!this.validateRuntime()) {
+            return;
+        }
+
         const stateId = stringToUuid(`twitter-state-${this.runtime.agentId}`);
         
         try {
@@ -160,23 +301,41 @@ export class TwitterInteractionClient extends ClientBase {
                 logger.log(`Created new state with last checked tweet ID: ${tweetId}`);
             }
         } catch (error) {
+            // Check if error is due to shutdown
+            if (this.isShutdown) {
+                logger.warn('Error occurred after shutdown, ignoring');
+                return;
+            }
             logger.error('Failed to save/update last checked tweet ID:', error);
             throw error;
         }
     }
 
     private async hasProcessedTweet(tweetId: string): Promise<boolean> {
+        if (!this.validateRuntime()) {
+            return false;
+        }
+
         const processedTweetId = stringToUuid(`twitter-processed-${tweetId}-${this.runtime.agentId}`);
         try {
             const memory = await this.runtime.messageManager.getMemoryById(processedTweetId);
             return !!memory;
         } catch (error) {
+            // Check if error is due to shutdown
+            if (this.isShutdown) {
+                logger.warn('Error checking processed tweet during shutdown');
+                return false;
+            }
             logger.error(`Error checking processed tweet ${tweetId}:`, error);
             return false;
         }
     }
 
     private async markTweetAsProcessed(tweetId: string): Promise<void> {
+        if (!this.validateRuntime()) {
+            return;
+        }
+
         const processedTweetId = stringToUuid(`twitter-processed-${tweetId}-${this.runtime.agentId}`);
         const memory: Memory = {
             id: processedTweetId,
@@ -196,23 +355,51 @@ export class TwitterInteractionClient extends ClientBase {
             await this.runtime.messageManager.createMemory(memory);
             logger.log(`Marked tweet ${tweetId} as processed`);
         } catch (error) {
+            // Check if error is due to shutdown
+            if (this.isShutdown) {
+                logger.warn('Error marking tweet as processed during shutdown');
+                return;
+            }
             logger.error(`Failed to mark tweet ${tweetId} as processed:`, error);
             throw error;
         }
     }
 
     private async countThreadInteractions(conversationId: string): Promise<number> {
+        if (!this.validateRuntime()) {
+            return 0;
+        }
+
+        const runtime = this.cachedRuntime || this.runtime;
+        
         try {
-            const roomId = stringToUuid(conversationId + "-" + this.runtime.agentId);
-            const count = await this.runtime.messageManager.countMemories(roomId, false);
+            const roomId = stringToUuid(conversationId + "-" + runtime.agentId);
+            
+            // Validate runtime before async operation
+            if (!this.validateRuntime()) {
+                return 0;
+            }
+            
+            const count = await runtime.messageManager.countMemories(roomId, false);
             return count;
         } catch (error) {
+            // Check if error is due to shutdown
+            if (this.isShutdown) {
+                logger.warn('Error counting thread interactions during shutdown');
+                return 0;
+            }
             logger.error("Error counting thread interactions:", error);
             return 0;
         }
     }
 
     async handleTwitterInteractions() {
+        // Early return if runtime validation fails
+        if (!this.validateRuntime()) {
+            return;
+        }
+
+        this.isInteractionInProgress = true;
         try {
             // Check for mentions
             const tweetCandidates = (
@@ -224,6 +411,7 @@ export class TwitterInteractionClient extends ClientBase {
             ).tweets;
 
             if (!tweetCandidates || tweetCandidates.length === 0) {
+                logger.log("No tweet candidates found");
                 return;
             }
 
@@ -237,6 +425,12 @@ export class TwitterInteractionClient extends ClientBase {
             // for each tweet candidate, handle the tweet
             for (const tweet of uniqueTweetCandidates) {
                 try {
+                    // Check shutdown status before processing each tweet
+                    if (!this.validateRuntime()) {
+                        logger.warn('Stopping tweet processing - client was shutdown');
+                        return;
+                    }
+
                     if (
                         !this.lastCheckedTweetId ||
                         parseInt(tweet.id) > this.lastCheckedTweetId
@@ -291,6 +485,8 @@ export class TwitterInteractionClient extends ClientBase {
             logger.log("Finished checking Twitter interactions");
         } catch (error) {
             logger.error("Error in handleTwitterInteractions:", error);
+        } finally {
+            this.isInteractionInProgress = false;
         }
     }
 
@@ -301,25 +497,42 @@ export class TwitterInteractionClient extends ClientBase {
         tweet: Tweet;
         message: Memory;
     }) {
+        // Early return if runtime validation fails
+        if (!this.validateRuntime()) {
+            return { text: "", action: "IGNORE" };
+        }
+
+        const runtime = this.cachedRuntime || this.runtime;
+        
         try {
             // Check thread interaction count early, adding 1 to account for this new interaction
             try {
                 const interactionCount = await this.countThreadInteractions(tweet.conversationId);
                 if ((interactionCount) >= MAX_INTERACTIONS_PER_THREAD) {
-                    return;
+                    return { text: "", action: "IGNORE" };
                 }
             } catch (error) {
                 logger.error(`Error checking thread interaction count for tweet ${tweet.id}:`, error);
-                return;
+                return { text: "", action: "IGNORE" };
             }
 
-            if (tweet.username === this.runtime.getSetting("TWITTER_USERNAME")) {
-                return;
+            // Validate runtime again after async operation
+            if (!this.validateRuntime()) {
+                return { text: "", action: "IGNORE" };
+            }
+
+            if (tweet.username === runtime.getSetting("TWITTER_USERNAME")) {
+                return { text: "", action: "IGNORE" };
             }
 
             // Save the tweet message if it doesn't exist
-            const tweetId = stringToUuid(tweet.id + "-" + this.runtime.agentId);
-            const tweetExists = await this.runtime.messageManager.getMemoryById(tweetId);
+            const tweetId = stringToUuid(tweet.id + "-" + runtime.agentId);
+            const tweetExists = await runtime.messageManager.getMemoryById(tweetId);
+
+            // Validate runtime after async operation
+            if (!this.validateRuntime()) {
+                return { text: "", action: "IGNORE" };
+            }
 
             if (!tweetExists) {
                 logger.log(`Saving new tweet ${tweet.id}`);
@@ -328,12 +541,12 @@ export class TwitterInteractionClient extends ClientBase {
 
                 const tweetMemory: Memory = {
                     id: tweetId,
-                    agentId: this.runtime.agentId,
+                    agentId: runtime.agentId,
                     content: {
                         text: tweet.text,
                         url: tweet.permanentUrl,
                         inReplyTo: tweet.inReplyToStatusId
-                            ? stringToUuid(tweet.inReplyToStatusId + "-" + this.runtime.agentId)
+                            ? stringToUuid(tweet.inReplyToStatusId + "-" + runtime.agentId)
                             : undefined,
                     },
                     userId: userIdUUID,
@@ -342,12 +555,22 @@ export class TwitterInteractionClient extends ClientBase {
                     embedding: embeddingZeroVector // Will be added by addEmbeddingToMemory
                 };
 
-                await this.runtime.messageManager.addEmbeddingToMemory(tweetMemory);
-                await this.runtime.messageManager.createMemory(tweetMemory);
+                // Validate runtime before memory operations
+                if (!this.validateRuntime()) {
+                    return { text: "", action: "IGNORE" };
+                }
+
+                await runtime.messageManager.addEmbeddingToMemory(tweetMemory);
+                await runtime.messageManager.createMemory(tweetMemory);
             }
 
             if (!message.content.text) {
                 logger.log("skipping tweet with no text", tweet.id);
+                return { text: "", action: "IGNORE" };
+            }
+
+            // Validate runtime before heavy processing
+            if (!this.validateRuntime()) {
                 return { text: "", action: "IGNORE" };
             }
 
@@ -430,11 +653,10 @@ export class TwitterInteractionClient extends ClientBase {
                 response.text = `${response.text} #word`;
 
                 if (!this.dryRun) {
-                    const callback: HandlerCallback = async (_responseContent: Content) => {
-                        // Use the modified response with hashtag
+                    const callback: HandlerCallback = async (responseContent: Content) => {
                         const memories = await sendTweetChunks(
                             this,
-                            response,  // Use outer response that has the hashtag
+                            responseContent,
                             message.roomId,
                             this.runtime.getSetting("TWITTER_USERNAME"),
                             tweet.id
@@ -453,6 +675,10 @@ export class TwitterInteractionClient extends ClientBase {
                             responseMessage
                         );
                     }
+
+                    // Restore evaluate and processActions calls
+                    await this.runtime.evaluate(message, state);
+                    await this.runtime.processActions(message, responseMessages, state);
                 } else {
                     logger.log("Dry run, not sending tweet:", response.text);
                 }

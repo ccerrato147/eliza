@@ -277,7 +277,7 @@ export class TwitterGenerationClient extends ClientBase {
             );
 
             const slice = newTweetContent.replaceAll(/\\n/g, "\n").trim();
-            const content = slice + " #life";
+            const content = slice;
 
             // Send the new tweet
             if (!this.dryRun) {
@@ -292,8 +292,13 @@ export class TwitterGenerationClient extends ClientBase {
                     );
                     // read the body of the response
                     const body = await result.json();
-                    const tweetResult =
-                        body.data.create_tweet.tweet_results.result;
+                    
+                    // Add validation for the response structure
+                    if (!body?.data?.create_tweet?.tweet_results?.result) {
+                        throw new Error(`Invalid Twitter API response: ${JSON.stringify(body)}`);
+                    }
+
+                    const tweetResult = body.data.create_tweet.tweet_results.result;
 
                     // Check runtime before processing response
                     if (!this.validateRuntime() || !runtime.messageManager) {

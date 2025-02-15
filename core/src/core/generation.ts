@@ -78,33 +78,6 @@ export async function generateText({
         );
 
         switch (provider) {
-            /* Commented out non-Vertex providers - only using Vertex AI
-            case ModelProvider.OPENAI:
-            case ModelProvider.LLAMACLOUD: {
-                // OpenAI/LlamaCloud implementation
-            }
-
-            case ModelProvider.ANTHROPIC: {
-                // Anthropic implementation
-            }
-
-            case ModelProvider.GROK: {
-                // Grok implementation
-            }
-
-            case ModelProvider.GROQ: {
-                // Groq implementation
-            }
-
-            case ModelProvider.LLAMALOCAL: {
-                // LlamaLocal implementation
-            }
-
-            case ModelProvider.REDPILL: {
-                // RedPill implementation
-            }
-            */
-
             case ModelProvider.GOOGLE_VERTEX: {
                 logger.log("Initializing Vertex AI model.");
                 const vertex = createVertex({
