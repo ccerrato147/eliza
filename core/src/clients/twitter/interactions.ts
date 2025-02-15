@@ -102,7 +102,7 @@ export class TwitterInteractionClient extends ClientBase {
             await this.handleTwitterInteractions();
             setTimeout(
                 handleTwitterInteractionsLoop,
-                (Math.floor(Math.random() * (1.5 - 1 + 0.1)) + 1) * 60 * 1000
+                (Math.floor(Math.random() * (2 - 1 + 1)) + 1) * 60 * 60 * 1000 // 1 to 2 hours
             );
         };
         handleTwitterInteractionsLoop();

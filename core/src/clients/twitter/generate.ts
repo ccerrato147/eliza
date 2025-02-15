@@ -15,8 +15,8 @@ import { ClientBase } from "./base.ts";
 import { generateText } from "../../core/generation.ts";
 import logger from "../../core/logger.ts";
 
-const MIN_TWEET_INTERVAL_MINUTES = 60; // 60
-const MAX_TWEET_INTERVAL_MINUTES = 80; // 80
+const MIN_TWEET_INTERVAL_MINUTES = 0.5; // 60
+const MAX_TWEET_INTERVAL_MINUTES = 1; // 80
 
 const newTweetPrompt = `{{timeline}}
 

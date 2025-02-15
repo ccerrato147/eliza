@@ -1,13 +1,17 @@
-import models from "./models.ts";
-import { IAgentRuntime, ModelProvider } from "./types.ts";
+// Imports commented out since they're not currently used
+// import models from "./models.ts";
+import { IAgentRuntime /*, ModelProvider */ } from "./types.ts";
 
 /**
- * Send a message to the OpenAI API for embedding.
- * @param input The input to be embedded.
- * @returns The embedding of the input.
+ * This function is currently disabled as we're not using embeddings.
+ * The system is using zero vectors for database compatibility.
+ * Uncomment and modify this code when similarity search is needed.
  */
-export async function embed(runtime: IAgentRuntime, input: string) {
-    // get the charcter, and handle by model type
+export async function embed(_runtime: IAgentRuntime, _input: string) {
+    // Return zero vector since embeddings are not currently used
+    return Array(1536).fill(0);
+    
+    /* Original implementation commented out to save on API calls
     const model = models[runtime.character.settings.model];
 
     if (model !== ModelProvider.OPENAI) {
@@ -60,6 +64,7 @@ export async function embed(runtime: IAgentRuntime, input: string) {
         console.error(e);
         throw e;
     }
+    */
 }
 
 export async function retrieveCachedEmbedding(

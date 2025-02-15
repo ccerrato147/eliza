@@ -1,4 +1,3 @@
-import { embed } from "./embedding.ts";
 import {
     IAgentRuntime,
     IMemoryManager,
@@ -47,11 +46,8 @@ export class MemoryManager implements IMemoryManager {
             return memory;
         }
 
-        const memoryText = memory.content.text;
-        if (!memoryText) throw new Error("Memory content is empty");
-        memory.embedding = memoryText
-            ? await embed(this.runtime, memoryText)
-            : embeddingZeroVector.slice();
+        // Always use zero vector since we're not doing similarity search
+        memory.embedding = embeddingZeroVector.slice();
         return memory;
     }
 

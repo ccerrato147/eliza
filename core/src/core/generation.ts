@@ -6,14 +6,18 @@ import {
 } from "./parsing.ts";
 import { Content, IAgentRuntime, ModelProvider } from "./types.ts";
 
+/* Commented out imports for non-Vertex providers
 import { createGroq } from "@ai-sdk/groq";
 import { createOpenAI } from "@ai-sdk/openai";
+*/
 import { default as tiktoken, TiktokenModel } from "tiktoken";
 import models from "./models.ts";
 
 import { generateText as aiGenerateText } from "ai";
 
+/* Commented out imports for non-Vertex providers
 import { createAnthropic } from "@ai-sdk/anthropic";
+*/
 
 import { createVertex } from "@ai-sdk/google-vertex";
 
@@ -57,7 +61,8 @@ export async function generateText({
     const max_context_length = models[provider].settings.maxInputTokens;
     const max_response_length = models[provider].settings.maxOutputTokens;
 
-    const apiKey = runtime.token;
+    // Don't delete the following line because it'll be used later
+    //const apiKey = runtime.token;
 
     try {
         logger.log(
@@ -73,126 +78,32 @@ export async function generateText({
         );
 
         switch (provider) {
+            /* Commented out non-Vertex providers - only using Vertex AI
             case ModelProvider.OPENAI:
             case ModelProvider.LLAMACLOUD: {
-                logger.log("Initializing OpenAI model.");
-                const openai = createOpenAI({ apiKey });
-
-                logger.log('****** CONTEXT\n', context)
-
-                const { text: openaiResponse } = await aiGenerateText({
-                    model: openai.languageModel(model),
-                    prompt: context,
-                    temperature: temperature,
-                    maxTokens: max_response_length,
-                    frequencyPenalty: frequency_penalty,
-                    presencePenalty: presence_penalty,
-                });
-
-                logger.log("****** RESPONSE\n", openaiResponse);
-
-                response = openaiResponse;
-                logger.log("Received response from OpenAI model.");
-                break;
+                // OpenAI/LlamaCloud implementation
             }
 
             case ModelProvider.ANTHROPIC: {
-                logger.log("Initializing Anthropic model.");
-
-                const anthropic = createAnthropic({ apiKey });
-
-                const { text: anthropicResponse } = await aiGenerateText({
-                    model: anthropic.languageModel(model),
-                    prompt: context,
-                    temperature: temperature,
-                    maxTokens: max_response_length,
-                    frequencyPenalty: frequency_penalty,
-                    presencePenalty: presence_penalty,
-                });
-
-                response = anthropicResponse;
-                logger.log("Received response from Anthropic model.");
-                break;
+                // Anthropic implementation
             }
 
             case ModelProvider.GROK: {
-                logger.log("Initializing Grok model.");
-                const serverUrl = models[provider].endpoint;
-                const grok = createOpenAI({ apiKey, baseURL: serverUrl });
-
-                const { text: grokResponse } = await aiGenerateText({
-                    model: grok.languageModel(model, {
-                        parallelToolCalls: false,
-                    }),
-                    prompt: context,
-                    temperature: temperature,
-                    maxTokens: max_response_length,
-                    frequencyPenalty: frequency_penalty,
-                    presencePenalty: presence_penalty,
-                });
-
-                response = grokResponse;
-                logger.log("Received response from Grok model.");
-                break;
+                // Grok implementation
             }
 
             case ModelProvider.GROQ: {
-                logger.log("Initializing Groq model.");
-                const groq = createGroq({ apiKey });
-
-                const { text: groqResponse } = await aiGenerateText({
-                    model: groq.languageModel(model),
-                    prompt: context,
-                    temperature: temperature,
-                    maxTokens: max_response_length,
-                    frequencyPenalty: frequency_penalty,
-                    presencePenalty: presence_penalty,
-                });
-
-                response = groqResponse;
-                logger.log("Received response from Groq model.");
-                break;
+                // Groq implementation
             }
 
             case ModelProvider.LLAMALOCAL: {
-                logger.log(
-                  "Using local Llama model for text completion."
-                );
-                response = await runtime.llamaService.queueTextCompletion(
-                  context,
-                  temperature,
-                  _stop,
-                  frequency_penalty,
-                  presence_penalty,
-                  max_response_length
-                );
-                logger.log("Received response from local Llama model.");
-                break;
+                // LlamaLocal implementation
             }
 
             case ModelProvider.REDPILL: {
-                logger.log("Initializing RedPill model.");
-                const serverUrl = models[provider].endpoint;
-                const openai = createOpenAI({ apiKey, baseURL: serverUrl });
-
-                logger.log('****** MODEL\n', model)
-                logger.log('****** CONTEXT\n', context)
-
-                const { text: openaiResponse } = await aiGenerateText({
-                    model: openai.languageModel(model),
-                    prompt: context,
-                    temperature: temperature,
-                    maxTokens: max_response_length,
-                    frequencyPenalty: frequency_penalty,
-                    presencePenalty: presence_penalty,
-                });
-
-                logger.log("****** RESPONSE\n", openaiResponse);
-
-                response = openaiResponse;
-                logger.log("Received response from OpenAI model.");
-                break;
+                // RedPill implementation
             }
+            */
 
             case ModelProvider.GOOGLE_VERTEX: {
                 logger.log("Initializing Vertex AI model.");
@@ -216,8 +127,9 @@ export async function generateText({
             }
 
             default: {
-                const errorMessage = `Unsupported provider: ${provider}`;
+                const errorMessage = `Unsupported provider: ${provider}. Currently only Google Vertex AI is supported.`;
                 logger.error(errorMessage);
+                logger.error("If you need to use other providers, please uncomment their implementations in the source code.");
                 throw new Error(errorMessage);
             }
         }

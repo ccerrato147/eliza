@@ -22,17 +22,19 @@ import {
     generateMessageResponse,
     generateText,
 } from "../../core/generation.ts";
+import { log_to_file } from "../../core/logger.ts";
 import { messageCompletionFooter } from "../../core/parsing.ts";
 import {
     Content,
     HandlerCallback,
     IAgentRuntime,
     ModelClass,
+    State,
     Memory,
 } from "../../core/types.ts";
 import { stringToUuid } from "../../core/uuid.ts";
 import { ClientBase } from "./base.ts";
-import { sendTweetChunks, wait } from "./utils.ts";
+import { buildConversationThread, sendTweetChunks, wait } from "./utils.ts";
 import logger from "../../core/logger.ts";
 import { embeddingZeroVector } from "../../core/memory.ts";
 
@@ -138,14 +140,7 @@ export class TwitterSearchClient extends ClientBase {
             }
             const twitterUsername = runtime.getSetting("TWITTER_USERNAME");
             if (!twitterUsername) {
-                logger.error('Twitter username not found in settings', {
-                    severity: 'ERROR',
-                    method: 'search.TwitterSearchClient.validateRuntime',
-                    agentId: runtime?.agentId,
-                    twitterUsername: runtime?.getSetting("TWITTER_USERNAME"),
-                    errorMessage: 'Twitter username setting is missing',
-                    timestamp: new Date().toISOString()
-                });
+                logger.error("Twitter username not found in settings");
                 return false;
             }
         } catch (error) {
@@ -153,15 +148,8 @@ export class TwitterSearchClient extends ClientBase {
             if (this.isShutdown) {
                 logger.warn("Error accessing runtime settings during shutdown");
             } else {
-                logger.error('Error accessing runtime settings', {
-                    severity: 'ERROR',
-                    method: 'search.TwitterSearchClient.validateRuntime',
-                    agentId: runtime?.agentId,
-                    twitterUsername: runtime?.getSetting("TWITTER_USERNAME"),
-                    errorMessage: error instanceof Error ? error.message : String(error),
-                    errorStack: error instanceof Error ? error.stack : undefined,
-                    timestamp: new Date().toISOString(),
-                    error: error
+                logger.error("Error accessing runtime settings", {
+                    error: error instanceof Error ? error.message : String(error)
                 });
             }
             return false;
@@ -312,30 +300,6 @@ export class TwitterSearchClient extends ClientBase {
         }
     }
 
-    /**
-     * Gathers thread context for search without creating memories or connections.
-     * Used only for understanding conversation context when generating responses.
-     */
-    private async gatherSearchThreadContext(tweet: Tweet): Promise<Tweet[]> {
-        const thread: Tweet[] = [];
-        const visited: Set<string> = new Set();
-        
-        async function processThread(currentTweet: Tweet) {
-            if (!currentTweet || visited.has(currentTweet.id)) {
-                return;
-            }
-            visited.add(currentTweet.id);
-            thread.unshift(currentTweet);
-            
-            if (currentTweet.inReplyToStatus) {
-                await processThread(currentTweet.inReplyToStatus);
-            }
-        }
-        
-        await processThread(tweet);
-        return thread;
-    }
-
     private async engageWithSearchTerms() {
         // Early return if runtime validation fails
         if (!this.validateRuntime()) {
@@ -360,13 +324,7 @@ export class TwitterSearchClient extends ClientBase {
             ];
 
             if (!searchTerm) {
-                logger.error('No search terms available', {
-                    severity: 'ERROR',
-                    method: 'search.TwitterSearchClient.engageWithSearchTerms',
-                    agentId: runtime?.agentId,
-                    twitterUsername: runtime?.getSetting("TWITTER_USERNAME"),
-                    timestamp: new Date().toISOString()
-                });
+                logger.error("No search terms available");
                 return;
             }
 
@@ -470,10 +428,7 @@ export class TwitterSearchClient extends ClientBase {
 
             const datestr = new Date().toUTCString().replace(/:/g, "-");
             const logName = `${this.runtime.character.name}_search_${datestr}`;
-            logger.log('Search prompt', {
-                name: logName,
-                prompt: prompt
-            });
+            log_to_file(logName, prompt);
 
             const mostInterestingTweetResponse = await generateText({
                 runtime: this.runtime,
@@ -486,10 +441,8 @@ export class TwitterSearchClient extends ClientBase {
                 return;
             }
 
-            logger.log('Search response', {
-                name: `${this.runtime.character.name}_search_${datestr}_result`,
-                response: mostInterestingTweetResponse
-            });
+            const responseLogName = `${this.runtime.character.name}_search_${datestr}_result`;
+            log_to_file(responseLogName, mostInterestingTweetResponse);
 
             const tweetId = mostInterestingTweetResponse.trim();
             const selectedTweet = slicedTweets.find(
@@ -516,9 +469,41 @@ export class TwitterSearchClient extends ClientBase {
             // Mark the tweet as processed BEFORE handling it
             await this.markTweetAsProcessed(selectedTweet.id);
 
-            // Get thread context without creating memories
-            const thread = await this.gatherSearchThreadContext(selectedTweet);
-            
+            const conversationId = selectedTweet.conversationId;
+            const roomId = stringToUuid(conversationId + "-" + runtime.agentId);
+
+            const userIdUUID = stringToUuid(selectedTweet.userId as string);
+
+            await runtime.ensureConnection(
+                userIdUUID,
+                roomId,
+                selectedTweet.username,
+                selectedTweet.name,
+                "twitter"
+            );
+
+            // crawl additional conversation tweets, if there are any
+            await buildConversationThread(selectedTweet, this);
+
+            const message = {
+                id: stringToUuid(selectedTweet.id + "-" + runtime.agentId),
+                agentId: runtime.agentId,
+                content: {
+                    text: selectedTweet.text,
+                    url: selectedTweet.permanentUrl,
+                    inReplyTo: selectedTweet.inReplyToStatusId
+                        ? stringToUuid(selectedTweet.inReplyToStatusId + "-" + runtime.agentId)
+                        : undefined,
+                },
+                userId: userIdUUID,
+                roomId,
+                createdAt: selectedTweet.timestamp * 1000,
+            };
+
+            if (!message.content.text) {
+                return { text: "", action: "IGNORE" };
+            }
+
             // Format the entire conversation thread in chronological order
             const formatTweet = (tweet: Tweet) => {
                 return `ID: ${tweet.id}
@@ -528,7 +513,8 @@ ${tweet.photos?.length > 0 ? '[Contains media]' : ''}
 ---`;
             };
 
-            const sortedThread = [...thread].sort((a, b) => a.timestamp - b.timestamp);
+            // Sort thread by timestamp to ensure chronological order
+            const sortedThread = [...selectedTweet.thread].sort((a, b) => a.timestamp - b.timestamp);
             
             const conversationContext = `# Full Conversation Thread\n\n${
                 sortedThread.map(formatTweet).join('\n\n')
@@ -552,14 +538,7 @@ ${tweet.photos?.length > 0 ? '[Contains media]' : ''}
                 imageDescriptions.push(description);
             }
 
-            const state = await runtime.composeState({
-                id: stringToUuid(selectedTweet.id + "-" + runtime.agentId),
-                agentId: runtime.agentId,
-                content: { text: selectedTweet.text },
-                userId: stringToUuid(selectedTweet.userId as string),
-                roomId: stringToUuid(selectedTweet.conversationId + "-" + runtime.agentId),
-                createdAt: Date.now()
-            }, {
+            let state = await runtime.composeState(message, {
                 twitterClient: this.twitterClient,
                 twitterUserName: runtime.getSetting("TWITTER_USERNAME"),
                 timeline: formattedHomeTimeline,
@@ -571,16 +550,18 @@ ${selectedTweet.urls.length > 0 ? `URLs: ${selectedTweet.urls.join(", ")}\n` : "
 `,
             });
 
+            await this.saveRequestMessage(message, state as State);
+
             const context = composeContext({
                 state,
                 template: messageHandlerTemplate,
             });
 
             // log context to file
-            logger.log('Search context', {
-                name: `${runtime.getSetting("TWITTER_USERNAME")}_${datestr}_search_context`,
-                context: context
-            });
+            log_to_file(
+                `${runtime.getSetting("TWITTER_USERNAME")}_${datestr}_search_context`,
+                context
+            );
 
             const responseContent = await generateMessageResponse({
                 runtime: runtime,
@@ -588,15 +569,23 @@ ${selectedTweet.urls.length > 0 ? `URLs: ${selectedTweet.urls.join(", ")}\n` : "
                 modelClass: ModelClass.SMALL,
             });
 
-            if (!responseContent.text) {
-                logger.warn("No response text generated");
+            responseContent.inReplyTo = message.id;
+
+            log_to_file(
+                `${runtime.getSetting("TWITTER_USERNAME")}_${datestr}_search_response`,
+                JSON.stringify(responseContent)
+            );
+
+            const response = responseContent;
+
+            if (!response.text) {
+                logger.warn("Returning: No response text found");
                 return;
             }
 
             logger.log(
-                `Bot would respond to tweet ${selectedTweet.id} with: ${responseContent.text}`
+                `Bot would respond to tweet ${selectedTweet.id} with: ${response.text}`
             );
-
             try {
                 const callback: HandlerCallback = async (response: Content) => {
                     if (!this.validateRuntime()) {
@@ -607,16 +596,40 @@ ${selectedTweet.urls.length > 0 ? `URLs: ${selectedTweet.urls.join(", ")}\n` : "
                     const memories = await sendTweetChunks(
                         this,
                         response,
-                        stringToUuid(selectedTweet.conversationId + "-" + runtime.agentId),
+                        message.roomId,
                         runtime.getSetting("TWITTER_USERNAME"),
-                        selectedTweet.id
+                        tweetId
                     );
                     return memories;
                 };
 
-                await callback(responseContent);
-                await wait();
+                const responseMessages = await callback(responseContent);
 
+                state = await runtime.updateRecentMessageState(state);
+
+                for (const responseMessage of responseMessages) {
+                    await runtime.messageManager.createMemory(
+                        responseMessage,
+                        false
+                    );
+                }
+
+                state = await runtime.updateRecentMessageState(state);
+
+                await runtime.evaluate(message, state);
+
+                await runtime.processActions(
+                    message,
+                    responseMessages,
+                    state,
+                    callback
+                );
+
+                const responseInfo = `Context:\n\n${context}\n\nSelected Post: ${selectedTweet.id} - ${selectedTweet.username}: ${selectedTweet.text}\nAgent's Output:\n${response.text}`;
+                const debugFileName = `tweetcache/tweet_generation_${selectedTweet.id}.txt`;
+
+                fs.writeFileSync(debugFileName, responseInfo);
+                await wait();
             } catch (error) {
                 logger.error('Error sending response post', {
                     severity: 'ERROR',
@@ -624,7 +637,7 @@ ${selectedTweet.urls.length > 0 ? `URLs: ${selectedTweet.urls.join(", ")}\n` : "
                     agentId: this.cachedRuntime?.agentId || this.runtime?.agentId,
                     twitterUsername: this.cachedRuntime?.getSetting("TWITTER_USERNAME") || this.runtime?.getSetting("TWITTER_USERNAME"),
                     tweetId: selectedTweet.id,
-                    responseText: responseContent.text,
+                    responseText: response.text,
                     errorMessage: error.message,
                     errorStack: error.stack,
                     timestamp: new Date().toISOString(),

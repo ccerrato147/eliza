@@ -183,6 +183,10 @@ export function getTokenForProvider(
                 character.settings?.secrets?.GOOGLE_GENERATIVE_AI_API_KEY ||
                 settings.GOOGLE_GENERATIVE_AI_API_KEY
             );
+        case ModelProvider.GOOGLE_VERTEX:
+            return "USE_ADC"; // Special sentinel value indicating use of Application Default Credentials
+        default:
+            throw new Error(`Unrecognized model provider: ${provider}`);
     }
 }
 // Function to initialize and return the appropriate database adapter based on configuration
