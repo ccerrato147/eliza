@@ -96,7 +96,7 @@ async function fetchCharacter(uuid: string, apiKey: string): Promise<Character |
             id: data.id,
             modelProvider: data.modelProvider ? 
                 ModelProvider[data.modelProvider.toUpperCase() as keyof typeof ModelProvider] : 
-                ModelProvider.OPENAI,
+                ModelProvider.GOOGLE_VERTEX,
             clients: Array.isArray(data.clients) ? data.clients : [],
             settings: {
                 secrets: data.settings?.secrets || {},
