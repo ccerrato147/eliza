@@ -542,16 +542,6 @@ ${tweet.photos?.length > 0 ? '[Contains media]' : ''}
                 tweetBackground = `Retweeting @${originalTweet.username}: ${originalTweet.text}`;
             }
 
-            // Generate image descriptions using GPT-4 vision API
-            const imageDescriptions = [];
-            for (const photo of selectedTweet.photos) {
-                const description =
-                    await runtime.imageDescriptionService.describeImage(
-                        photo.url
-                    );
-                imageDescriptions.push(description);
-            }
-
             const state = await runtime.composeState({
                 id: stringToUuid(selectedTweet.id + "-" + runtime.agentId),
                 agentId: runtime.agentId,
