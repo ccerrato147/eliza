@@ -96,6 +96,18 @@ class RequestQueue {
                     error: error
                 });
                 this.queue.unshift(request);
+                const backoffDelay = Math.pow(2, this.queue.length) * 1000;
+                logger.log("Request failed, applying exponential backoff", {
+                    severity: 'WARN',
+                    method: 'base.RequestQueue.processQueue',
+                    queueLength: this.queue.length,
+                    backoffDelay: `${backoffDelay/1000} seconds`,
+                    retryCount: this.queue.length,
+                    errorMessage: error.message,
+                    errorStack: error.stack,
+                    timestamp: new Date().toISOString(),
+                    error: error
+                });
                 await this.exponentialBackoff(this.queue.length);
             }
             await this.randomDelay();
@@ -282,29 +294,47 @@ export class ClientBase extends EventEmitter {
                     }
                 }
 
-                let loggedInWaits = 0;
+                let loginAttempts = 0;
+                const getRetryDelay = (attempt: number): number => {
+                    switch (attempt) {
+                        case 0: return 10 * 1000;        // 10 seconds
+                        case 1: return 60 * 1000;        // 1 minute
+                        case 2: return 10 * 60 * 1000;   // 10 minutes
+                        case 3: return 30 * 60 * 1000;   // 30 minutes
+                        default: return 60 * 60 * 1000;  // 1 hour
+                    }
+                };
 
                 while (!(await this.twitterClient.isLoggedIn())) {
-                    logger.log("Waiting for Twitter login");
-                    await new Promise((resolve) => setTimeout(resolve, 2000));
-                    if (loggedInWaits > 10) {
-                        logger.error("Failed to login to Twitter");
+                    const delay = getRetryDelay(loginAttempts);
+                    logger.log(`Login attempt ${loginAttempts + 1} failed. Waiting ${delay/1000} seconds before retrying...`);
+                    await new Promise((resolve) => setTimeout(resolve, delay));
+                    
+                    try {
                         await this.twitterClient.login(
                             this.runtime.getSetting("TWITTER_USERNAME"),
                             this.runtime.getSetting("TWITTER_PASSWORD"),
                             this.runtime.getSetting("TWITTER_EMAIL")
                         );
-
                         const cookies = await this.twitterClient.getCookies();
-                        fs.writeFileSync(
-                            cookiesFilePath,
-                            JSON.stringify(cookies),
-                            "utf-8"
-                        );
-                        loggedInWaits = 0;
+                        const cookiesArray = cookies.map(cookie => ({
+                            key: cookie.key,
+                            value: cookie.value,
+                            domain: '.twitter.com',
+                            path: '/',
+                            secure: true,
+                            httpOnly: true,
+                            sameSite: 'Lax'
+                        }));
+                        await this.saveCookiesToDatabase(cookiesArray);
+                        logger.log("Successfully logged in to Twitter after retrying");
+                    } catch (error) {
+                        logger.error(`Login retry attempt ${loginAttempts + 1} failed:`, error);
                     }
-                    loggedInWaits++;
+                    
+                    loginAttempts++;
                 }
+
                 const userId = await this.requestQueue.add(async () => {
                     // wait 3 seconds before getting the user id
                     await new Promise((resolve) => setTimeout(resolve, 10000));

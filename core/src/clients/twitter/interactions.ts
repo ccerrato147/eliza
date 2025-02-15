@@ -35,8 +35,8 @@ import {
 import { embeddingZeroVector } from "../../core/memory.ts";
 
 const MAX_INTERACTIONS_PER_THREAD = 12;
-const MIN_CHECK_INTERVAL_MINUTES = 1;
-const MAX_CHECK_INTERVAL_MINUTES = 1.2;
+const MIN_CHECK_INTERVAL_MINUTES = 2;
+const MAX_CHECK_INTERVAL_MINUTES = 5;
 
 export const messageHandlerTemplate =
     `{{relevantFacts}}
