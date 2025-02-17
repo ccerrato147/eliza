@@ -542,6 +542,9 @@ ${tweet.photos?.length > 0 ? '[Contains media]' : ''}
                 tweetBackground = `Retweeting @${originalTweet.username}: ${originalTweet.text}`;
             }
 
+            // Initialize empty image descriptions array since we're not processing images
+            const imageDescriptions: string[] = [];
+
             const state = await runtime.composeState({
                 id: stringToUuid(selectedTweet.id + "-" + runtime.agentId),
                 agentId: runtime.agentId,

@@ -279,6 +279,23 @@ export class TwitterGenerationClient extends ClientBase {
             const slice = newTweetContent.replaceAll(/\\n/g, "\n").trim();
             const content = slice;
 
+            // Validate content before sending tweet
+            if (!content || content.trim().length === 0) {
+                logger.warn("Generated empty tweet content, skipping send", {
+                    agentId: runtime?.agentId,
+                    username: twitterUsername,
+                    rawContent: newTweetContent, // before trimming
+                    modelClass: ModelClass.SMALL,
+                    contextLength: context?.length,
+                    stateData: {
+                        hasTimeline: !!state?.timeline,
+                        hasTwitterUsername: !!state?.twitterUserName,
+                    },
+                    timestamp: datestr
+                });
+                return;
+            }
+
             // Send the new tweet
             if (!this.dryRun) {
                 try {
