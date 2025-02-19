@@ -649,9 +649,6 @@ export class TwitterInteractionClient extends ClientBase {
             );
 
             if (response.text) {
-                // Append #word to the response text for debugging
-                response.text = `${response.text} #word`;
-
                 if (!this.dryRun) {
                     const callback: HandlerCallback = async (responseContent: Content) => {
                         const memories = await sendTweetChunks(
